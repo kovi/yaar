@@ -1,0 +1,13 @@
+triggers:
+  - tag: branch=master
+    execute: echo 'branch master' >> triggered
+  - tag: branch
+    execute: echo 'tag without value' >> triggered
+  - tag: branch=test2
+    execute: echo 'tag branch test2' >> triggered
+  - file: /data2/dir1
+    execute: echo 'dir1' >> triggered
+  - file: /data2
+    execute: echo 'data2' >> triggered
+
+
