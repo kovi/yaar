@@ -6,6 +6,8 @@
 
     <script>
         var apiPrefix = "/api/dirtree";
+        var sortBy = "Name";
+        var ascending = true;
 
         function addItemToFileList(name, href, isDir, size, modTime, contentDiv) {
             if (isDir) name += '/';
@@ -32,12 +34,24 @@
 
         function processEntries(filelist, fragment) {
             var contentDiv = document.getElementById('filelist');
+            mkTitle = function(label) {
+                return '<a href="#" onclick="changeSort(event)">' + label + '</a>';
+            }
             // Clear previous content + add header
-            contentDiv.innerHTML = '<b>Name                                              Time                     Size</b><br>';
+            contentDiv.innerHTML = `<b>${mkTitle("Name")}                                              ${mkTitle("Time")}                     ${mkTitle("Size")}</b><br>`;
             if (fragment) {
                 var up = fragment.substring(0, fragment.lastIndexOf('/'));
                 addItemToFileList('..', '#' + up, true, 0, 0, contentDiv);
             }
+            var cmp = (a, b) => (a.Name < b.Name ? -1 : 1);
+            switch (sortBy) {
+                case "Name": cmp = (a, b) => (a.Name < b.Name ? -1 : 1); break;
+                case "Time": cmp = (a, b) => (a.ModTime < b.ModTime ? -1 : 1); break;
+                case "Size": cmp = (a, b) => (a.Size < b.Size ? -1 : 1); break;
+            }
+            filelist.sort(cmp);
+            if (!ascending) filelist.reverse();
+            filelist.sort((a, b) => a.IsDir == b.IsDir ? 0 : b.IsDir - a.IsDir);
             for (const d of filelist) {
                 processEntry(d, fragment, contentDiv);
             }
@@ -68,6 +82,18 @@
         function handleFragmentNavigation() {
             var fragment = window.location.hash.substr(1); // Remove '#' from the fragment
             fetchContentFromFragment(fragment);
+        }
+
+        function changeSort(event) {
+            event.preventDefault();
+            var newSort = event.target.textContent;
+            if (newSort === sortBy) {
+                ascending = !ascending;
+            } else {
+                sortBy = newSort;
+                ascending = true;
+            }
+            handleFragmentNavigation();
         }
 
         window.onhashchange = function () {
