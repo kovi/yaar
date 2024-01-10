@@ -15,9 +15,50 @@ Supports POSTing artifacs, directory listing, meta tags, locking, and simple tri
 
 <!-- /TOC -->
 
-## Directory listing
+## REST API
 
-With file sizes
+### Directory Tree Endpoint
+
+- **Method:** GET
+- **Base URL:** `/api/dirtree`
+- **Request:** `/api/dirtree/{path}`
+  - `{path}`: The path to the directory whose entries are to be fetched within the repository.
+- **Response:**
+    - **Content Type:** application/json
+    - **Status Codes:**
+        - `200 OK`: Successful retrieval of directory entries.
+        - `404 Not Found`: When the provided directory path does not exist.
+
+#### Example
+
+Request:
+```sh
+curl http://localhost:8080/api/dirtree/path/to/dir
+```
+
+Response:
+```json
+[
+  {
+    "Name": "subdir",
+    "Size": 4096,
+    "ModTime": 1702505262,
+    "IsDir": true
+  },
+  {
+    "Name": "file1.txt",
+    "Size": 7,
+    "ModTime": 1703171845,
+    "IsDir": false
+  }
+]
+```
+
+## Javascript-based HTML client
+
+**URL:** `/browser.html`
+
+## Directory listing
 
 ### Ordering
 

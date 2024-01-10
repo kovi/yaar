@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"html"
 	"io"
@@ -119,6 +120,12 @@ func ServeRoot(urlPrefix, root string) gin.HandlerFunc {
 	return Serve(urlPrefix, root)
 }
 
+// GET method: serve files as is and directories as html pages.
+//
+// Special entry points:
+// /browser.html -- AJAX based HTML client for directory browsing
+// /api -- REST API
+// /api/dirtree/ -- directory listing
 func Serve(urlPrefix string, root string) gin.HandlerFunc {
 	fs := http.Dir(root)
 
@@ -126,6 +133,18 @@ func Serve(urlPrefix string, root string) gin.HandlerFunc {
 		upath := c.Request.URL.Path
 		if !strings.HasPrefix(upath, "/") {
 			upath = "/" + upath
+		}
+
+		if upath == "/browser.html" {
+			http.ServeFile(c.Writer, c.Request, "browser.html")
+			return
+		}
+
+		serveAsJson := false
+
+		if strings.HasPrefix(upath, "/api/dirtree/") {
+			upath = strings.TrimPrefix(upath, "/api/dirtree")
+			serveAsJson = true
 		}
 
 		d, err := fs.Open(upath)
@@ -144,10 +163,17 @@ func Serve(urlPrefix string, root string) gin.HandlerFunc {
 		}
 		if s.IsDir() {
 			c.Status(http.StatusOK)
-			dirList(c.Writer, c.Request, d, upath)
+			if serveAsJson {
+				jsonDirList(c.Writer, c.Request, d, upath)
+			} else {
+				dirList(c.Writer, c.Request, d, upath)
+			}
 			return
 		}
-
+		if serveAsJson {
+			c.AbortWithError(http.StatusNotFound, fmt.Errorf("path is not a directory"))
+			return
+		}
 		http.ServeFile(c.Writer, c.Request, path.Join(root, c.Request.URL.Path[1:]))
 	}
 }
@@ -227,7 +253,12 @@ func (l NameFilter) matches(e fs.DirEntry, _ Metadata) bool {
 	return strings.HasPrefix(e.Name(), l.name)
 }
 
-func dirList(w http.ResponseWriter, r *http.Request, f http.File, urlpath string) {
+type HttpError struct {
+	message string
+	code    int
+}
+
+func dirEntries(r *http.Request, f http.File, urlpath string) ([]fs.DirEntry, *HttpError) {
 	// Prefer to use ReadDir instead of Readdir,
 	// because the former doesn't require calling
 	// Stat on every entry of a directory on Unix.
@@ -241,8 +272,8 @@ func dirList(w http.ResponseWriter, r *http.Request, f http.File, urlpath string
 
 	if err != nil {
 		log.Infof("http: error reading directory: %v", err)
-		http.Error(w, "Error reading directory", http.StatusInternalServerError)
-		return
+		// http.Error(w, "Error reading directory", http.StatusInternalServerError)
+		return dirs, &HttpError{"Error reading directory", http.StatusInternalServerError}
 	}
 
 	// tag filtering
@@ -255,8 +286,7 @@ func dirList(w http.ResponseWriter, r *http.Request, f http.File, urlpath string
 					f, err := NewTagFilter(values[i])
 					if err != nil {
 						log.Infof("http: %v", err)
-						http.Error(w, "invalid filter", http.StatusBadRequest)
-						return
+						return dirs, &HttpError{"invalid filter", http.StatusBadRequest}
 					}
 					filters = append(filters, f)
 				}
@@ -266,8 +296,7 @@ func dirList(w http.ResponseWriter, r *http.Request, f http.File, urlpath string
 					f, err := NewLockFilter(values[i])
 					if err != nil {
 						log.Infof("http: %v", err)
-						http.Error(w, "invalid filter", http.StatusBadRequest)
-						return
+						return dirs, &HttpError{"invalid filter", http.StatusBadRequest}
 					}
 					filters = append(filters, f)
 				}
@@ -277,8 +306,7 @@ func dirList(w http.ResponseWriter, r *http.Request, f http.File, urlpath string
 					f, err := NewNameFilter(values[i])
 					if err != nil {
 						log.Infof("http: %v", err)
-						http.Error(w, "invalid filter", http.StatusBadRequest)
-						return
+						return dirs, &HttpError{"invalid filter", http.StatusBadRequest}
 					}
 					filters = append(filters, f)
 				}
@@ -357,7 +385,15 @@ func dirList(w http.ResponseWriter, r *http.Request, f http.File, urlpath string
 			return r
 		})
 	}
+	return dirs, nil
+}
 
+func dirList(w http.ResponseWriter, r *http.Request, f http.File, urlpath string) {
+	dirs, err := dirEntries(r, f, urlpath)
+	if err != nil {
+		http.Error(w, err.message, err.code)
+		return
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
 	current := r.URL.Path
@@ -381,4 +417,36 @@ func dirList(w http.ResponseWriter, r *http.Request, f http.File, urlpath string
 		fmt.Fprintf(w, "<a href=\"%s\">%s</a>%-*s %20s  %20d\n", url.String(), html.EscapeString(name), 50-len(name), "", info.ModTime().Format(time.RFC3339), info.Size())
 	}
 	fmt.Fprintf(w, "<hr>%s</pre></body></html>\n", time.Now().Format(time.RFC3339))
+}
+
+type DirEntry struct {
+	Name    string
+	Size    int64
+	ModTime uint64 // seconds since epoch
+	IsDir   bool
+}
+
+func jsonDirList(w gin.ResponseWriter, r *http.Request, f http.File, urlpath string) {
+	log.Info("jsonDirList()")
+	dirs, httpErr := dirEntries(r, f, urlpath)
+	if httpErr != nil {
+		http.Error(w, httpErr.message, httpErr.code)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+
+	entries := make([]DirEntry, 0, len(dirs))
+	for _, e := range dirs {
+		info, err := e.Info()
+		if err == nil {
+			entries = append(entries, DirEntry{e.Name(), info.Size(), uint64(info.ModTime().Unix()), e.IsDir()})
+		}
+	}
+
+	b, err := json.MarshalIndent(entries, "", "  ")
+	if err == nil {
+		w.Write(b)
+	} else {
+		http.Error(w, "dirs marshal error: "+err.Error(), http.StatusInternalServerError)
+	}
 }

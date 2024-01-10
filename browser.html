@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Yaar artifactory browser</title>
+
+    <script>
+        var apiPrefix = "/api/dirtree";
+        var sortBy = "Name";
+        var ascending = true;
+
+        function addItemToFileList(name, href, isDir, size, modTime, contentDiv) {
+            if (isDir) name += '/';
+            let entryLink = document.createElement('a');
+            entryLink.href = href;
+            entryLink.textContent = name;
+            contentDiv.appendChild(entryLink);
+            let dateStr = formatDate(new Date(modTime * 1000));
+            if (name !== "../") {
+                let textNode = document.createTextNode(
+                    // check header line in processEntries if column widths are changed
+                    `${" ".repeat(50 - name.length)}${dateStr}${" ".repeat(25 - dateStr.length)}${size}`
+                );
+                contentDiv.appendChild(textNode);
+            }
+            contentDiv.appendChild(document.createElement('br'));
+        }
+
+        function processEntry(entry, fragment, contentDiv) {
+            var fullFragment = fragment + '/' + entry.Name;
+            var href = (entry.IsDir ? '#' : '') + fullFragment;
+            addItemToFileList(entry.Name, href, entry.IsDir, entry.Size, entry.ModTime, contentDiv);
+        }
+
+        function processEntries(filelist, fragment) {
+            var contentDiv = document.getElementById('filelist');
+            mkTitle = function(label) {
+                return '<a href="#" onclick="changeSort(event)">' + label + '</a>';
+            }
+            // Clear previous content + add header
+            contentDiv.innerHTML = `<b>${mkTitle("Name")}                                              ${mkTitle("Time")}                     ${mkTitle("Size")}</b><br>`;
+            if (fragment) {
+                var up = fragment.substring(0, fragment.lastIndexOf('/'));
+                addItemToFileList('..', '#' + up, true, 0, 0, contentDiv);
+            }
+            var cmp = (a, b) => (a.Name < b.Name ? -1 : 1);
+            switch (sortBy) {
+                case "Name": cmp = (a, b) => (a.Name < b.Name ? -1 : 1); break;
+                case "Time": cmp = (a, b) => (a.ModTime < b.ModTime ? -1 : 1); break;
+                case "Size": cmp = (a, b) => (a.Size < b.Size ? -1 : 1); break;
+            }
+            filelist.sort(cmp);
+            if (!ascending) filelist.reverse();
+            filelist.sort((a, b) => a.IsDir == b.IsDir ? 0 : b.IsDir - a.IsDir);
+            for (const d of filelist) {
+                processEntry(d, fragment, contentDiv);
+            }
+        }
+
+        function fetchContentFromFragment(fragment) {
+            var xhr = new XMLHttpRequest();
+            xhr.onreadystatechange = function () {
+                document.title = fragment + '/ - yaar'
+                document.getElementById('dirname').innerText = fragment + '/';
+                document.getElementById('querytime').innerText = formatDate(new Date());
+                if (xhr.readyState === XMLHttpRequest.DONE) {
+                    if (xhr.status === 200) {
+                        processEntries(xhr.response, fragment);
+                    } else {
+                        console.error('Error fetching content');
+                        document.getElementById('filelist').innerHTML = 'Error fetching content';
+                    }
+                }
+            };
+            xhr.responseType = 'json';
+            var url = apiPrefix + (fragment !== '' ? fragment : '/');
+            xhr.open('GET', url, true);
+            xhr.send();
+        }
+
+        // Function to handle navigation using fragment
+        function handleFragmentNavigation() {
+            var fragment = window.location.hash.substr(1); // Remove '#' from the fragment
+            fetchContentFromFragment(fragment);
+        }
+
+        function changeSort(event) {
+            event.preventDefault();
+            var newSort = event.target.textContent;
+            if (newSort === sortBy) {
+                ascending = !ascending;
+            } else {
+                sortBy = newSort;
+                ascending = true;
+            }
+            handleFragmentNavigation();
+        }
+
+        window.onhashchange = function () {
+            handleFragmentNavigation();
+        };
+    </script>
+</head>
+
+<body>
+    <h1 id="dirname">/xxx</h1>
+    <hr>
+    <pre id="filelist">
+    </pre>
+    <hr>
+    <pre id="querytime"></pre>
+
+    <script>
+        // Fetch initial content when the page loads
+        document.addEventListener('DOMContentLoaded', function () {
+            handleFragmentNavigation();
+        });
+
+        function formatDate(date) {
+            return date.toISOString().substring(0, 19).replace("T", " ");
+        }
+    </script>
+</body>
+</html>
