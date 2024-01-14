@@ -19,6 +19,9 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+var dirTreePrefix = "/api/dirtree"
+var repoPrefix = "/repo"
+
 func router() *gin.Engine {
 	router := gin.Default()
 
@@ -122,8 +125,10 @@ func ServeRoot(urlPrefix, root string) gin.HandlerFunc {
 
 // GET method: serve files as is and directories as html pages.
 //
-// Special entry points:
+// entry points:
+// / -- redirect to browser.html
 // /browser.html -- AJAX based HTML client for directory browsing
+// /repo -- download files, TODO directories
 // /api -- REST API
 // /api/dirtree/ -- directory listing
 func Serve(urlPrefix string, root string) gin.HandlerFunc {
@@ -135,6 +140,10 @@ func Serve(urlPrefix string, root string) gin.HandlerFunc {
 			upath = "/" + upath
 		}
 
+		if upath == "/" {
+			c.Redirect(http.StatusMovedPermanently, "/browser.html")
+		}
+
 		if upath == "/browser.html" {
 			http.ServeFile(c.Writer, c.Request, "browser.html")
 			return
@@ -142,9 +151,13 @@ func Serve(urlPrefix string, root string) gin.HandlerFunc {
 
 		serveAsJson := false
 
-		if strings.HasPrefix(upath, "/api/dirtree/") {
-			upath = strings.TrimPrefix(upath, "/api/dirtree")
+		if strings.HasPrefix(upath, dirTreePrefix+"/") {
+			upath = strings.TrimPrefix(upath, dirTreePrefix)
 			serveAsJson = true
+		} else if strings.HasPrefix(upath, repoPrefix+"/") {
+			upath = strings.TrimPrefix(upath, repoPrefix)
+		} else {
+			// backward-compatible response (repo accessible in "/")
 		}
 
 		d, err := fs.Open(upath)
@@ -174,7 +187,7 @@ func Serve(urlPrefix string, root string) gin.HandlerFunc {
 			c.AbortWithError(http.StatusNotFound, fmt.Errorf("path is not a directory"))
 			return
 		}
-		http.ServeFile(c.Writer, c.Request, path.Join(root, c.Request.URL.Path[1:]))
+		http.ServeFile(c.Writer, c.Request, path.Join(root, upath[1:]))
 	}
 }
 
@@ -420,10 +433,12 @@ func dirList(w http.ResponseWriter, r *http.Request, f http.File, urlpath string
 }
 
 type DirEntry struct {
-	Name    string
-	Size    int64
-	ModTime uint64 // seconds since epoch
-	IsDir   bool
+	Name     string
+	Size     int64
+	ModTime  uint64 // seconds since epoch
+	IsDir    bool
+	FullPath string
+	Url      string
 }
 
 func jsonDirList(w gin.ResponseWriter, r *http.Request, f http.File, urlpath string) {
@@ -439,10 +454,16 @@ func jsonDirList(w gin.ResponseWriter, r *http.Request, f http.File, urlpath str
 	for _, e := range dirs {
 		info, err := e.Info()
 		if err == nil {
-			entries = append(entries, DirEntry{e.Name(), info.Size(), uint64(info.ModTime().Unix()), e.IsDir()})
+			fullpath := filepath.Join(urlpath, e.Name())
+			var url string
+			if e.IsDir() {
+				url = dirTreePrefix + fullpath
+			} else {
+				url = repoPrefix + fullpath
+			}
+			entries = append(entries, DirEntry{e.Name(), info.Size(), uint64(info.ModTime().Unix()), e.IsDir(), fullpath, url})
 		}
 	}
-
 	b, err := json.MarshalIndent(entries, "", "  ")
 	if err == nil {
 		w.Write(b)
