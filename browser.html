@@ -26,21 +26,21 @@
             contentDiv.appendChild(document.createElement('br'));
         }
 
-        function processEntry(entry, fragment, contentDiv) {
-            var fullFragment = fragment + '/' + entry.Name;
-            var href = (entry.IsDir ? '#' : '') + fullFragment;
+        function processEntry(entry, contentDiv) {
+            var href = entry.IsDir ? '#' + entry.FullPath : entry.Url;
             addItemToFileList(entry.Name, href, entry.IsDir, entry.Size, entry.ModTime, contentDiv);
         }
 
-        function processEntries(filelist, fragment) {
+        function processEntries(filelist) {
             var contentDiv = document.getElementById('filelist');
             mkTitle = function(label) {
                 return '<a href="#" onclick="changeSort(event)">' + label + '</a>';
             }
             // Clear previous content + add header
             contentDiv.innerHTML = `<b>${mkTitle("Name")}                                              ${mkTitle("Time")}                     ${mkTitle("Size")}</b><br>`;
+            let fragment = window.location.hash.substr(1);
             if (fragment) {
-                var up = fragment.substring(0, fragment.lastIndexOf('/'));
+                let up = fragment.substring(0, fragment.lastIndexOf('/'));
                 addItemToFileList('..', '#' + up, true, 0, 0, contentDiv);
             }
             var cmp = (a, b) => (a.Name < b.Name ? -1 : 1);
@@ -53,19 +53,19 @@
             if (!ascending) filelist.reverse();
             filelist.sort((a, b) => a.IsDir == b.IsDir ? 0 : b.IsDir - a.IsDir);
             for (const d of filelist) {
-                processEntry(d, fragment, contentDiv);
+                processEntry(d, contentDiv);
             }
         }
 
-        function fetchContentFromFragment(fragment) {
+        function fetchDirectory(path) {
             var xhr = new XMLHttpRequest();
             xhr.onreadystatechange = function () {
-                document.title = fragment + '/ - yaar'
-                document.getElementById('dirname').innerText = fragment + '/';
+                document.title = path + '/ - yaar'
+                document.getElementById('dirname').innerText = path + '/';
                 document.getElementById('querytime').innerText = formatDate(new Date());
                 if (xhr.readyState === XMLHttpRequest.DONE) {
                     if (xhr.status === 200) {
-                        processEntries(xhr.response, fragment);
+                        processEntries(xhr.response);
                     } else {
                         console.error('Error fetching content');
                         document.getElementById('filelist').innerHTML = 'Error fetching content';
@@ -73,7 +73,7 @@
                 }
             };
             xhr.responseType = 'json';
-            var url = apiPrefix + (fragment !== '' ? fragment : '/');
+            var url = apiPrefix + (path !== '' ? path : '/');
             xhr.open('GET', url, true);
             xhr.send();
         }
@@ -81,7 +81,7 @@
         // Function to handle navigation using fragment
         function handleFragmentNavigation() {
             var fragment = window.location.hash.substr(1); // Remove '#' from the fragment
-            fetchContentFromFragment(fragment);
+            fetchDirectory(fragment);
         }
 
         function changeSort(event) {
