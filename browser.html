@@ -8,6 +8,7 @@
         var apiPrefix = "/api/dirtree";
         var sortBy = "Name";
         var ascending = true;
+        var maxNameLen = 0;
 
         function addItemToFileList(name, href, isDir, size, modTime, contentDiv) {
             if (isDir) name += '/';
@@ -19,7 +20,7 @@
             if (name !== "../") {
                 let textNode = document.createTextNode(
                     // check header line in processEntries if column widths are changed
-                    `${" ".repeat(50 - name.length)}${dateStr}${" ".repeat(25 - dateStr.length)}${size}`
+                    `${" ".repeat(Math.max(0, maxNameLen - name.length))}${dateStr}${" ".repeat(25 - dateStr.length)}${size}`
                 );
                 contentDiv.appendChild(textNode);
             }
@@ -36,13 +37,6 @@
             mkTitle = function(label) {
                 return '<a href="#" onclick="changeSort(event)">' + label + '</a>';
             }
-            // Clear previous content + add header
-            contentDiv.innerHTML = `<b>${mkTitle("Name")}                                              ${mkTitle("Time")}                     ${mkTitle("Size")}</b><br>`;
-            let fragment = window.location.hash.substr(1);
-            if (fragment) {
-                let up = fragment.substring(0, fragment.lastIndexOf('/'));
-                addItemToFileList('..', '#' + up, true, 0, 0, contentDiv);
-            }
             var cmp = (a, b) => (a.Name < b.Name ? -1 : 1);
             switch (sortBy) {
                 case "Name": cmp = (a, b) => (a.Name < b.Name ? -1 : 1); break;
@@ -52,6 +46,20 @@
             filelist.sort(cmp);
             if (!ascending) filelist.reverse();
             filelist.sort((a, b) => a.IsDir == b.IsDir ? 0 : b.IsDir - a.IsDir);
+
+            maxNameLen = 50;
+            for (const d of filelist) {
+                maxNameLen = Math.max(d.Name.length+1, maxNameLen);
+            }
+
+            // Clear previous content + add header
+            contentDiv.innerHTML = `<b>${mkTitle("Name")}${" ".repeat(maxNameLen-4)}${mkTitle("Time")}                     ${mkTitle("Size")}</b><br>`;
+            let fragment = window.location.hash.substr(1);
+            if (fragment) {
+                let up = fragment.substring(0, fragment.lastIndexOf('/'));
+                addItemToFileList('..', '#' + up, true, 0, 0, contentDiv);
+            }
+
             for (const d of filelist) {
                 processEntry(d, contentDiv);
             }
