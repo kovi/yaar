@@ -9,4 +9,5 @@ RUN GOOS=linux GOARCH=amd64 go build -ldflags="-w -s" -o /yaar
 
 FROM scratch
 COPY --from=builder /yaar /yaar
+COPY browser.html /browser.html
 ENTRYPOINT ["/yaar"]
