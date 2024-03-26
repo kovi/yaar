@@ -6,8 +6,8 @@
 
     <script>
         var apiPrefix = "/api/dirtree";
-        var sortBy = "Name";
-        var ascending = true;
+        var sortBy = "Time";
+        var ascending = false;
         var maxNameLen = 0;
 
         function addItemToFileList(name, href, isDir, size, modTime, contentDiv) {
@@ -35,7 +35,13 @@
         function processEntries(filelist) {
             var contentDiv = document.getElementById('filelist');
             mkTitle = function(label) {
-                return '<a href="#" onclick="changeSort(event)">' + label + '</a>';
+                let space = ' ';
+                let ind = '';
+                if (label === sortBy) {
+                    ind = ascending ? '▲' : '▼';
+                    space = '';
+                }
+               return `<a href="#" onclick="changeSort(event, '${label}')">${label}${ind}</a>${space}`;
             }
             var cmp = (a, b) => (a.Name < b.Name ? -1 : 1);
             switch (sortBy) {
@@ -53,7 +59,7 @@
             }
 
             // Clear previous content + add header
-            contentDiv.innerHTML = `<b>${mkTitle("Name")}${" ".repeat(maxNameLen-4)}${mkTitle("Time")}                     ${mkTitle("Size")}</b><br>`;
+            contentDiv.innerHTML = `<b>${mkTitle("Name")}${" ".repeat(maxNameLen-5)}${mkTitle("Time")}                    ${mkTitle("Size")}</b><br>`;
             let fragment = window.location.hash.substr(1);
             if (fragment) {
                 let up = fragment.substring(0, fragment.lastIndexOf('/'));
@@ -92,9 +98,8 @@
             fetchDirectory(fragment);
         }
 
-        function changeSort(event) {
+        function changeSort(event, newSort) {
             event.preventDefault();
-            var newSort = event.target.textContent;
             if (newSort === sortBy) {
                 ascending = !ascending;
             } else {
