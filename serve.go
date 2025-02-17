@@ -94,6 +94,13 @@ func router() *gin.Engine {
 			return
 		}
 
+		err = os.MkdirAll(filepath.Dir(dataFileName), 0755)
+		if err != nil {
+			log.Info("put error in mkdir: ", err)
+			c.Status(http.StatusInternalServerError)
+			return
+		}
+
 		f, err := os.Create(dataFileName)
 		if err != nil {
 			log.Info("put error: ", err)
@@ -117,10 +124,6 @@ func router() *gin.Engine {
 	router.Use(Serve("/", *dataDir))
 
 	return router
-}
-
-func ServeRoot(urlPrefix, root string) gin.HandlerFunc {
-	return Serve(urlPrefix, root)
 }
 
 // GET method: serve files as is and directories as html pages.
@@ -156,8 +159,6 @@ func Serve(urlPrefix string, root string) gin.HandlerFunc {
 			serveAsJson = true
 		} else if strings.HasPrefix(upath, repoPrefix+"/") {
 			upath = strings.TrimPrefix(upath, repoPrefix)
-		} else {
-			// backward-compatible response (repo accessible in "/")
 		}
 
 		d, err := fs.Open(upath)
