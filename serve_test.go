@@ -6,6 +6,7 @@ import (
 	"os"
 	"path"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -75,7 +76,7 @@ func TestListing(t *testing.T) {
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 	assert.Equal(t, 200, w.Code)
-	assert.Equal(t, []string{"../", "b.txt", "a.bin", "c2.txt", "c.txt"}, filesOf(w.Body.String()))
+	assert.Equal(t, []string{"../", "a.bin", "c.txt", "b.txt", "c2.txt"}, filesOf(w.Body.String()))
 
 	// test ordering - name desc
 	req, _ = http.NewRequest("GET", "/listing?c=n&o=d", nil)
@@ -160,7 +161,7 @@ func TestListingFilter(t *testing.T) {
 	w = httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 	assert.Equal(t, 200, w.Code)
-	assert.Equal(t, []string{"../", "c.txt", "c2.txt"}, filesOf(w.Body.String()))
+	assert.Equal(t, []string{"../", "c2.txt", "c.txt"}, filesOf(w.Body.String()))
 
 	// matching
 	req, _ = http.NewRequest("GET", "/listingfilter?qn=b.", nil)
@@ -183,4 +184,47 @@ func TestListingFilter(t *testing.T) {
 	assert.Equal(t, 200, w.Code)
 	assert.Equal(t, []string{"../", "c.txt"}, filesOf(w.Body.String()))
 
+}
+
+func TestPostWithMkdir(t *testing.T) {
+	// Test that POST-ing a file to a directory that does not exist creates the directory
+	// Test that POST-ing a file to a directory that does exist adds the file to the directory
+	err := prepareDataDir(t, "listing")
+	assert.NoError(t, err)
+
+	qTriggers := StartTriggers()
+
+	defer func() {
+		close(qTriggers)
+	}()
+
+	router := router()
+
+	req, _ := http.NewRequest("POST", "/listing/create/me/hello.txt", strings.NewReader("hello"))
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	assert.Equal(t, 200, w.Code)
+
+	req, _ = http.NewRequest("POST", "/listing/create/me/world.txt", strings.NewReader("world"))
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	assert.Equal(t, 200, w.Code)
+
+	req, _ = http.NewRequest("GET", "/listing/create/me", nil)
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	assert.Equal(t, 200, w.Code)
+	assert.Equal(t, []string{"../", "world.txt", "hello.txt"}, filesOf(w.Body.String()))
+
+	req, _ = http.NewRequest("GET", "/listing/create/me/hello.txt", nil)
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	assert.Equal(t, 200, w.Code)
+	assert.Equal(t, "hello", w.Body.String())
+
+	req, _ = http.NewRequest("GET", "/listing/create/me/world.txt", nil)
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	assert.Equal(t, 200, w.Code)
+	assert.Equal(t, "world", w.Body.String())
 }
