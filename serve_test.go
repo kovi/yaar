@@ -76,7 +76,7 @@ func TestListing(t *testing.T) {
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 	assert.Equal(t, 200, w.Code)
-	assert.ElementsMatch(t, []string{"../", "b.txt", "a.bin", "c2.txt", "c.txt"}, filesOf(w.Body.String()))
+	assert.Equal(t, []string{"../", "a.bin", "c.txt", "b.txt", "c2.txt"}, filesOf(w.Body.String()))
 
 	// test ordering - name desc
 	req, _ = http.NewRequest("GET", "/listing?c=n&o=d", nil)
@@ -161,7 +161,7 @@ func TestListingFilter(t *testing.T) {
 	w = httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 	assert.Equal(t, 200, w.Code)
-	assert.ElementsMatch(t, []string{"../", "c.txt", "c2.txt"}, filesOf(w.Body.String()))
+	assert.Equal(t, []string{"../", "c2.txt", "c.txt"}, filesOf(w.Body.String()))
 
 	// matching
 	req, _ = http.NewRequest("GET", "/listingfilter?qn=b.", nil)
@@ -214,7 +214,7 @@ func TestPostWithMkdir(t *testing.T) {
 	w = httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 	assert.Equal(t, 200, w.Code)
-	assert.ElementsMatch(t, []string{"../", "hello.txt", "world.txt"}, filesOf(w.Body.String()))
+	assert.Equal(t, []string{"../", "world.txt", "hello.txt"}, filesOf(w.Body.String()))
 
 	req, _ = http.NewRequest("GET", "/listing/create/me/hello.txt", nil)
 	w = httptest.NewRecorder()
