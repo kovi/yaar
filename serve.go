@@ -434,12 +434,15 @@ func dirList(w http.ResponseWriter, r *http.Request, f http.File, urlpath string
 }
 
 type DirEntry struct {
-	Name     string
-	Size     int64
-	ModTime  uint64 // seconds since epoch
-	IsDir    bool
-	FullPath string
-	Url      string
+	Name       string
+	Size       int64
+	ModTime    uint64 // seconds since epoch
+	ExpiryTime uint64
+	IsDir      bool
+	FullPath   string
+	Url        string
+	Locks      []string
+	Tags       []string
 }
 
 func jsonDirList(w gin.ResponseWriter, r *http.Request, f http.File, urlpath string) {
@@ -462,7 +465,33 @@ func jsonDirList(w gin.ResponseWriter, r *http.Request, f http.File, urlpath str
 			} else {
 				url = repoPrefix + fullpath
 			}
-			entries = append(entries, DirEntry{e.Name(), info.Size(), uint64(info.ModTime().Unix()), e.IsDir(), fullpath, url})
+
+			metadata, ok := GetMetadata(fullpath)
+			expiryTime := uint64(0)
+			lockName := make([]string, 0)
+			tags := make([]string, 0)
+			if ok {
+				if metadata.Expires == 0 {
+					expiryTime = 0
+				} else {
+					expiryTime = uint64(metadata.Added.Add(metadata.Expires).Unix())
+				}
+				lockName = metadata.Locks
+				tags = metadata.Tags
+			}
+
+			entry := DirEntry{
+				Name:       e.Name(),
+				Size:       info.Size(),
+				ModTime:    uint64(info.ModTime().Unix()),
+				ExpiryTime: expiryTime,
+				IsDir:      e.IsDir(),
+				FullPath:   fullpath,
+				Url:        url,
+				Locks:      lockName,
+				Tags:       tags,
+			}
+			entries = append(entries, entry)
 		}
 	}
 	b, err := json.MarshalIndent(entries, "", "  ")

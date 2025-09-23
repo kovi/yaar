@@ -10,44 +10,72 @@
         var ascending = false;
         var maxNameLen = 0;
 
-        function addItemToFileList(name, href, isDir, size, modTime, contentDiv) {
-            if (isDir) name += '/';
-            let entryLink = document.createElement('a');
-            entryLink.href = href;
-            entryLink.textContent = name;
-            contentDiv.appendChild(entryLink);
-            let dateStr = formatDate(new Date(modTime * 1000));
-            if (name !== "../") {
-                let textNode = document.createTextNode(
-                    // check header line in processEntries if column widths are changed
-                    `${" ".repeat(Math.max(0, maxNameLen - name.length))}${dateStr}${" ".repeat(25 - dateStr.length)}${size}`
-                );
-                contentDiv.appendChild(textNode);
-            }
-            contentDiv.appendChild(document.createElement('br'));
+        function formatLocks(locks) {
+            return (locks && locks.length) ? locks.join('; ') : '-';
         }
 
-        function processEntry(entry, contentDiv) {
+        function formatTags(tags) {
+            return formatLocks(tags);
+        }
+
+        function addItemToFileList(tableBody, name, href, isDir, size, modTime, expiry, locks, tags) {
+            if (isDir) name += '/';
+            const row = document.createElement('tr');
+
+            const nameCell = document.createElement('td');
+            const entryLink = document.createElement('a');
+            entryLink.href = href;
+            entryLink.textContent = name;
+            nameCell.appendChild(entryLink);
+            row.appendChild(nameCell);
+
+            const groupNumber = (num) => {
+                // vibe-coded, does "1234567" -> "1'234'567"
+                return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, "'");
+            }
+
+            const appendCell = (content) => {
+                const cell = document.createElement('td');
+                cell.textContent = content;
+                row.appendChild(cell);
+            };
+
+            if (name !== "../") {
+                appendCell(formatDate(new Date(modTime * 1000)));
+                appendCell(groupNumber(size));
+                appendCell(expiry ? formatDate(new Date(expiry * 1000)) : '-');
+                appendCell(formatLocks(locks));
+                appendCell(formatTags(tags));
+            }
+
+            tableBody.appendChild(row);
+        }
+
+        function processEntry(tableBody, entry) {
             var href = entry.IsDir ? '#' + entry.FullPath : entry.Url;
-            addItemToFileList(entry.Name, href, entry.IsDir, entry.Size, entry.ModTime, contentDiv);
+            addItemToFileList(tableBody, entry.Name, href, entry.IsDir, entry.Size, entry.ModTime, entry.ExpiryTime, entry.Locks, entry.Tags);
         }
 
         function processEntries(filelist) {
-            var contentDiv = document.getElementById('filelist');
+            const table = document.getElementById('filelist');
+            const tableBody = table.querySelector('tbody');
+
             mkTitle = function(label) {
-                let space = ' ';
                 let ind = '';
                 if (label === sortBy) {
                     ind = ascending ? '▲' : '▼';
-                    space = '';
                 }
-               return `<a href="#" onclick="changeSort(event, '${label}')">${label}${ind}</a>${space}`;
-            }
+                return `<a href="#" onclick="changeSort(event, '${label}')">${label}${ind}</a>`;
+            };
+
             var cmp = (a, b) => (a.Name < b.Name ? -1 : 1);
             switch (sortBy) {
                 case "Name": cmp = (a, b) => (a.Name < b.Name ? -1 : 1); break;
                 case "Time": cmp = (a, b) => (a.ModTime < b.ModTime ? -1 : 1); break;
                 case "Size": cmp = (a, b) => (a.Size < b.Size ? -1 : 1); break;
+                case "Expiry": cmp = (a, b) => (a.ExpiryTime < b.ExpiryTime ? -1 : 1); break;
+                case "Locks": cmp = (a, b) => (formatLocks(a.Locks) < formatLocks(b.Locks) ? -1 : 1); break;
+                case "Tags": cmp = (a, b) => (formatTags(a.Tags) < formatTags(b.Tags) ? -1 : 1); break;
             }
             filelist.sort(cmp);
             if (!ascending) filelist.reverse();
@@ -59,15 +87,33 @@
             }
 
             // Clear previous content + add header
-            contentDiv.innerHTML = `<b>${mkTitle("Name")}${" ".repeat(maxNameLen-5)}${mkTitle("Time")}                    ${mkTitle("Size")}</b><br>`;
+            tableBody.innerHTML = '';
+            const headerRow = document.createElement('tr');
+
+            const appendHeader = (title) => {
+                const header = document.createElement("th");
+                header.innerHTML = mkTitle(title);
+                headerRow.appendChild(header);
+            };
+
+            appendHeader("Name");
+            appendHeader("Time");
+            appendHeader("Size");
+            appendHeader("Expiry");
+            appendHeader("Locks");
+            appendHeader("Tags");
+
+
+            tableBody.appendChild(headerRow);
+
             let fragment = window.location.hash.substr(1);
             if (fragment) {
                 let up = fragment.substring(0, fragment.lastIndexOf('/'));
-                addItemToFileList('..', '#' + up, true, 0, 0, contentDiv);
+                addItemToFileList(tableBody, '..', '#' + up, true, 0, 0, 0, [], []);
             }
 
             for (const d of filelist) {
-                processEntry(d, contentDiv);
+                processEntry(tableBody, d);
             }
         }
 
@@ -113,13 +159,35 @@
             handleFragmentNavigation();
         };
     </script>
+    <style>
+        table {
+            border-collapse: collapse;
+        }
+        th, td {
+            padding-left: 8px;
+            padding-right: 8px;
+        }
+        th {
+            min-width: 100px;
+            text-align: left;
+        }
+        td:nth-child(3) {
+            text-align: right;
+            padding-right: 24px;
+        }
+        td:nth-child(1) {
+            min-width: 300px;
+        }
+    </style>
 </head>
 
 <body>
     <h1 id="dirname">/xxx</h1>
     <hr>
-    <pre id="filelist">
-    </pre>
+    <table id="filelist">
+        <tbody>
+        </tbody>
+    </table>
     <hr>
     <pre id="querytime"></pre>
 
@@ -130,7 +198,12 @@
         });
 
         function formatDate(date) {
-            return date.toISOString().substring(0, 19).replace("T", " ");
+            return date.getFullYear() + '-' +
+                String(date.getMonth() + 1).padStart(2, '0') + '-' +
+                String(date.getDate()).padStart(2, '0') + ' ' +
+                String(date.getHours()).padStart(2, '0') + ':' +
+                String(date.getMinutes()).padStart(2, '0') + ':' +
+                String(date.getSeconds()).padStart(2, '0');
         }
     </script>
 </body>
