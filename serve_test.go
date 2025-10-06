@@ -228,3 +228,55 @@ func TestPostWithMkdir(t *testing.T) {
 	assert.Equal(t, 200, w.Code)
 	assert.Equal(t, "world", w.Body.String())
 }
+
+func TestPostExisting(t *testing.T) {
+	// testing that POSTing an already existing file does not overwrite it
+	err := prepareDataDir(t, "postnooverwrite")
+	assert.NoError(t, err)
+	qTriggers := StartTriggers()
+	defer func() {
+		close(qTriggers)
+	}()
+	router := router()
+
+	req, _ := http.NewRequest("POST", "/postnooverwrite/a.bin", strings.NewReader("not-a"))
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code, "Incorrect request when POSTing existing file")
+
+	req, _ = http.NewRequest("GET", "/postnooverwrite/a.bin", nil)
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "a", w.Body.String(), "POST to existing file changed its content")
+}
+
+func TestPostExistingOverwrite(t *testing.T) {
+	// Test that setting the overwrite query parameter allows overwriting of existing file
+	err := prepareDataDir(t, "postwithoverwrite")
+	assert.NoError(t, err)
+	qTriggers := StartTriggers()
+	defer func() {
+		close(qTriggers)
+	}()
+	router := router()
+
+	// verify that file exists
+	req, _ := http.NewRequest("GET", "/postwithoverwrite/a.bin", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "a", w.Body.String(), "Expected file does not match")
+
+	req, _ = http.NewRequest("POST", "/postwithoverwrite/a.bin?overwrite=true", strings.NewReader("not-a"))
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code, "POST rejected even with overwrite=true")
+
+	req, _ = http.NewRequest("GET", "/postwithoverwrite/a.bin", nil)
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "not-a", w.Body.String(), "File was not overwritten")
+
+}

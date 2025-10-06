@@ -62,12 +62,17 @@ func router() *gin.Engine {
 			return
 		}
 
+		allowOverwrite := c.DefaultQuery("overwrite", "false") == "true"
+
 		dataFileName := filepath.Join(*dataDir, name)
 		_, err := os.Stat(dataFileName)
-		if !os.IsNotExist(err) {
+		exists := !os.IsNotExist(err)
+		if exists && !allowOverwrite {
 			log.Info("File ", dataFileName, " already exists")
 			c.String(http.StatusBadRequest, "already exists")
 			return
+		} else if exists {
+			log.Info("File ", dataFileName, " already exists and will be overwritten")
 		}
 
 		m := Metadata{
