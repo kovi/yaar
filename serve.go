@@ -22,6 +22,79 @@ import (
 var dirTreePrefix = "/api/dirtree"
 var repoPrefix = "/repo"
 
+func handleUpload(c *gin.Context, allowOverwrite bool) {
+
+	name := c.Param("name")
+	log.Info("upload of ", name, " with overwrite ", allowOverwrite)
+
+	b := c.Request.Body
+	if b == nil {
+		log.Info("No body")
+		c.Status(http.StatusBadRequest)
+		return
+	}
+
+	dataFileName := filepath.Join(*dataDir, name)
+	_, err := os.Stat(dataFileName)
+	exists := !os.IsNotExist(err)
+	if exists && !allowOverwrite {
+		log.Info("File ", dataFileName, " already exists")
+		c.String(http.StatusBadRequest, "already exists")
+		return
+	}
+
+	m := Metadata{
+		Added: time.Now(),
+	}
+
+	m.Tags = c.Request.Header.Values("x-tag")
+	m.Locks = c.Request.Header.Values("x-lock")
+
+	expire := c.Request.Header.Get("x-expire")
+	if expire != "" {
+		d, err := time.ParseDuration(expire)
+		if err != nil {
+			c.String(http.StatusBadRequest, err.Error())
+			return
+		}
+		m.Expires = d
+	}
+
+	err = SetMetadata(name, m)
+	if err != nil {
+		log.Info("put metadata error: ", err)
+		c.Status(http.StatusInternalServerError)
+		return
+	}
+
+	err = os.MkdirAll(filepath.Dir(dataFileName), 0755)
+	if err != nil {
+		log.Info("put error in mkdir: ", err)
+		c.Status(http.StatusInternalServerError)
+		return
+	}
+
+	f, err := os.Create(dataFileName)
+	if err != nil {
+		log.Info("put error: ", err)
+		c.Status(http.StatusInternalServerError)
+		return
+	}
+	defer f.Close()
+
+	n, err := io.Copy(f, b)
+	if err != nil {
+		log.Info("put error in copy: ", err)
+		c.Status(http.StatusInternalServerError)
+		return
+	}
+
+	log.Print("Wrote ", n, " bytes")
+	c.Status(http.StatusOK)
+
+	triggers <- name
+}
+
 func router() *gin.Engine {
 	router := gin.Default()
 
@@ -51,80 +124,12 @@ func router() *gin.Engine {
 		SetMetadata(name, m)
 	})
 
+	router.PUT("/*name", func(c *gin.Context) {
+		handleUpload(c, true)
+	})
+
 	router.POST("/*name", func(c *gin.Context) {
-		name := c.Param("name")
-		log.Info("post of ", name)
-
-		b := c.Request.Body
-		if b == nil {
-			log.Info("No body")
-			c.Status(http.StatusBadRequest)
-			return
-		}
-
-		allowOverwrite := c.DefaultQuery("overwrite", "false") == "true"
-
-		dataFileName := filepath.Join(*dataDir, name)
-		_, err := os.Stat(dataFileName)
-		exists := !os.IsNotExist(err)
-		if exists && !allowOverwrite {
-			log.Info("File ", dataFileName, " already exists")
-			c.String(http.StatusBadRequest, "already exists")
-			return
-		} else if exists {
-			log.Info("File ", dataFileName, " already exists and will be overwritten")
-		}
-
-		m := Metadata{
-			Added: time.Now(),
-		}
-
-		m.Tags = c.Request.Header.Values("x-tag")
-		m.Locks = c.Request.Header.Values("x-lock")
-
-		expire := c.Request.Header.Get("x-expire")
-		if expire != "" {
-			d, err := time.ParseDuration(expire)
-			if err != nil {
-				c.String(http.StatusBadRequest, err.Error())
-				return
-			}
-			m.Expires = d
-		}
-
-		err = SetMetadata(name, m)
-		if err != nil {
-			log.Info("put metadata error: ", err)
-			c.Status(http.StatusInternalServerError)
-			return
-		}
-
-		err = os.MkdirAll(filepath.Dir(dataFileName), 0755)
-		if err != nil {
-			log.Info("put error in mkdir: ", err)
-			c.Status(http.StatusInternalServerError)
-			return
-		}
-
-		f, err := os.Create(dataFileName)
-		if err != nil {
-			log.Info("put error: ", err)
-			c.Status(http.StatusInternalServerError)
-			return
-		}
-		defer f.Close()
-
-		n, err := io.Copy(f, b)
-		if err != nil {
-			log.Info("put error in copy: ", err)
-			c.Status(http.StatusInternalServerError)
-			return
-		}
-
-		log.Print("Wrote ", n, " bytes")
-		c.Status(http.StatusOK)
-
-		triggers <- name
+		handleUpload(c, false)
 	})
 	router.Use(Serve("/", *dataDir))
 
