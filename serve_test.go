@@ -228,3 +228,67 @@ func TestPostWithMkdir(t *testing.T) {
 	assert.Equal(t, 200, w.Code)
 	assert.Equal(t, "world", w.Body.String())
 }
+
+func TestPostExisting(t *testing.T) {
+	// testing that POSTing an already existing file does not overwrite it
+	err := prepareDataDir(t, "postrequest")
+	assert.NoError(t, err)
+	qTriggers := StartTriggers()
+	defer func() {
+		close(qTriggers)
+	}()
+	router := router()
+
+	req, _ := http.NewRequest("POST", "/postrequest/a.bin", strings.NewReader("not-a"))
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code, "Incorrect request when POSTing existing file")
+
+	req, _ = http.NewRequest("GET", "/postrequest/a.bin", nil)
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "a", w.Body.String(), "POST to existing file changed its content")
+}
+
+func TestPut(t *testing.T) {
+	// Test that PUT requests create or overwrite existing resource
+	err := prepareDataDir(t, "putrequest")
+	assert.NoError(t, err)
+	qTriggers := StartTriggers()
+	defer func() {
+		close(qTriggers)
+	}()
+	router := router()
+
+	// verify that file exists
+	req, _ := http.NewRequest("GET", "/putrequest/a.bin", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "a", w.Body.String(), "Expected file does not match")
+
+	req, _ = http.NewRequest("PUT", "/putrequest/a.bin", strings.NewReader("not-a"))
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code, "PUT rejected on existing resource")
+
+	req, _ = http.NewRequest("GET", "/putrequest/a.bin", nil)
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "not-a", w.Body.String(), "File was not overwritten")
+
+	// PUT a new file
+
+	req, _ = http.NewRequest("PUT", "/putrequest/newfile", strings.NewReader("newfile"))
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code, "PUT rejected on new resource")
+
+	req, _ = http.NewRequest("GET", "/putrequest/newfile", nil)
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "newfile", w.Body.String(), "File was not created")
+}
