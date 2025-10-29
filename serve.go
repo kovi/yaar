@@ -91,11 +91,11 @@ func handleUpload(c *gin.Context, allowOverwrite bool) {
 	triggers <- name
 }
 
-func handleDirtreeGet(c *gin.Context) {
+func handleMetaGet(c *gin.Context) {
 	name := c.Param("name")
 
-	fs := http.Dir(*dataDir)
-	file, err := fs.Open(name)
+	httpDir := http.Dir(*dataDir)
+	file, err := httpDir.Open(name)
 	if os.IsNotExist(err) {
 		c.AbortWithStatus(http.StatusNotFound)
 		return
@@ -113,9 +113,20 @@ func handleDirtreeGet(c *gin.Context) {
 	}
 
 	if stat.IsDir() {
-		c.Status(http.StatusOK)
 		jsonDirList(c.Writer, c.Request, file, name)
-		return
+	} else {
+		// single entry
+		entry, err := pathToDirEntry(filepath.Join(*dataDir, name), fs.FileInfoToDirEntry(stat))
+		if err != nil {
+			c.AbortWithStatus(http.StatusInternalServerError)
+			return
+		}
+		b, err := json.MarshalIndent(entry, "", "  ")
+		if err != nil {
+			c.AbortWithStatus(http.StatusInternalServerError)
+			return
+		}
+		c.Writer.Write(b)
 	}
 }
 
@@ -133,7 +144,9 @@ func router() *gin.Engine {
 	// /api
 	api := router.Group("/api/v1")
 
-	api.DELETE("/meta/*name", func(c *gin.Context) {
+	// /api/meta
+	meta := api.Group("/meta")
+	meta.DELETE("/*name", func(c *gin.Context) {
 		name := c.Param("name")
 		slash := strings.LastIndex(name, "/")
 		if slash < 0 {
@@ -159,11 +172,11 @@ func router() *gin.Engine {
 		SetMetadata(name, m)
 	})
 
-	api.GET("/dirtree", func(c *gin.Context) {
+	meta.GET("", func(c *gin.Context) {
 		c.Params = append(c.Params, gin.Param{Key: "name", Value: "/"})
-		handleDirtreeGet(c)
+		handleMetaGet(c)
 	})
-	api.GET("/dirtree/*name", handleDirtreeGet)
+	meta.GET("/*name", handleMetaGet)
 
 	// /api/repo - download/upload
 	repo := api.Group("/repo")
@@ -420,6 +433,53 @@ type DirEntry struct {
 	Tags       []string
 }
 
+func pathToDirEntry(fullpath string, e fs.DirEntry) (DirEntry, error) {
+	info, err := e.Info()
+	if err != nil {
+		return DirEntry{}, err
+	}
+	var url string
+	if e.IsDir() {
+		url = "/api/v1/meta" + fullpath
+	} else {
+		url = "/api/v1/repo" + fullpath
+	}
+
+	metadata, ok := GetMetadata(fullpath)
+	expiryTime := uint64(0)
+	lockName := []string{}
+	tags := []string{}
+	if ok {
+		if metadata.Expires == 0 {
+			expiryTime = 0
+		} else {
+			expiryTime = uint64(metadata.Added.Add(metadata.Expires).Unix())
+		}
+		lockName = metadata.Locks
+		tags = metadata.Tags
+	}
+
+	entry := DirEntry{
+		Name:       e.Name(),
+		Size:       info.Size(),
+		ModTime:    uint64(info.ModTime().Unix()),
+		ExpiryTime: expiryTime,
+		IsDir:      e.IsDir(),
+		FullPath:   fullpath,
+		Url:        url,
+		Locks:      lockName,
+		Tags:       tags,
+	}
+	// normalize so empty slices are [] not null in json
+	if entry.Locks == nil {
+		entry.Locks = []string{}
+	}
+	if entry.Tags == nil {
+		entry.Tags = []string{}
+	}
+	return entry, nil
+}
+
 func jsonDirList(w gin.ResponseWriter, r *http.Request, f http.File, urlpath string) {
 	log.Info("jsonDirList()")
 	dirs, httpErr := dirEntries(r, f, urlpath)
@@ -431,48 +491,9 @@ func jsonDirList(w gin.ResponseWriter, r *http.Request, f http.File, urlpath str
 
 	entries := make([]DirEntry, 0, len(dirs))
 	for _, e := range dirs {
-		info, err := e.Info()
+		fullpath := filepath.Join(urlpath, e.Name())
+		entry, err := pathToDirEntry(fullpath, e)
 		if err == nil {
-			fullpath := filepath.Join(urlpath, e.Name())
-			var url string
-			if e.IsDir() {
-				url = "/api/v1/dirtree" + fullpath
-			} else {
-				url = "/api/v1/repo" + fullpath
-			}
-
-			metadata, ok := GetMetadata(fullpath)
-			expiryTime := uint64(0)
-			lockName := []string{}
-			tags := []string{}
-			if ok {
-				if metadata.Expires == 0 {
-					expiryTime = 0
-				} else {
-					expiryTime = uint64(metadata.Added.Add(metadata.Expires).Unix())
-				}
-				lockName = metadata.Locks
-				tags = metadata.Tags
-			}
-
-			entry := DirEntry{
-				Name:       e.Name(),
-				Size:       info.Size(),
-				ModTime:    uint64(info.ModTime().Unix()),
-				ExpiryTime: expiryTime,
-				IsDir:      e.IsDir(),
-				FullPath:   fullpath,
-				Url:        url,
-				Locks:      lockName,
-				Tags:       tags,
-			}
-			// normalize so empty slices are [] not null in json
-			if entry.Locks == nil {
-				entry.Locks = []string{}
-			}
-			if entry.Tags == nil {
-				entry.Tags = []string{}
-			}
 			entries = append(entries, entry)
 		}
 	}
