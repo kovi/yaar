@@ -2,12 +2,11 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
-	"html"
 	"io"
 	"io/fs"
 	"net/http"
-	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -18,9 +17,6 @@ import (
 	"github.com/gin-gonic/gin"
 	log "github.com/sirupsen/logrus"
 )
-
-var dirTreePrefix = "/api/dirtree"
-var repoPrefix = "/repo"
 
 func handleUpload(c *gin.Context, allowOverwrite bool) {
 
@@ -95,10 +91,49 @@ func handleUpload(c *gin.Context, allowOverwrite bool) {
 	triggers <- name
 }
 
+func handleDirtreeGet(c *gin.Context) {
+	name := c.Param("name")
+
+	fs := http.Dir(*dataDir)
+	file, err := fs.Open(name)
+	if os.IsNotExist(err) {
+		c.AbortWithStatus(http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		c.AbortWithStatus(http.StatusInternalServerError)
+		return
+	}
+	defer file.Close()
+
+	stat, err := file.Stat()
+	if err != nil {
+		c.AbortWithStatus(http.StatusInternalServerError)
+		return
+	}
+
+	if stat.IsDir() {
+		c.Status(http.StatusOK)
+		jsonDirList(c.Writer, c.Request, file, name)
+		return
+	}
+}
+
 func router() *gin.Engine {
 	router := gin.Default()
 
-	router.DELETE("/meta/*name", func(c *gin.Context) {
+	// browser
+	router.GET("/browser.html", func(c *gin.Context) {
+		http.ServeFile(c.Writer, c.Request, "browser.html")
+	})
+	router.GET("/", func(c *gin.Context) {
+		c.Redirect(http.StatusMovedPermanently, "/browser.html")
+	})
+
+	// /api
+	api := router.Group("/api/v1")
+
+	api.DELETE("/meta/*name", func(c *gin.Context) {
 		name := c.Param("name")
 		slash := strings.LastIndex(name, "/")
 		if slash < 0 {
@@ -124,82 +159,43 @@ func router() *gin.Engine {
 		SetMetadata(name, m)
 	})
 
-	router.PUT("/*name", func(c *gin.Context) {
+	api.GET("/dirtree", func(c *gin.Context) {
+		c.Params = append(c.Params, gin.Param{Key: "name", Value: "/"})
+		handleDirtreeGet(c)
+	})
+	api.GET("/dirtree/*name", handleDirtreeGet)
+
+	// /api/repo - download/upload
+	repo := api.Group("/repo")
+
+	repo.GET("/*name", func(c *gin.Context) {
+		name := c.Param("name")
+		path := filepath.Join(*dataDir, name)
+		stat, err := os.Stat(path)
+		if errors.Is(err, fs.ErrNotExist) {
+			c.AbortWithStatus(http.StatusNotFound)
+			return
+		}
+		if err != nil {
+			c.AbortWithStatus(http.StatusInternalServerError)
+			return
+		}
+		if stat.IsDir() {
+			c.AbortWithStatus(http.StatusBadRequest)
+			return
+		}
+		http.ServeFile(c.Writer, c.Request, path)
+	})
+
+	repo.PUT("/*name", func(c *gin.Context) {
 		handleUpload(c, true)
 	})
 
-	router.POST("/*name", func(c *gin.Context) {
+	repo.POST("/*name", func(c *gin.Context) {
 		handleUpload(c, false)
 	})
-	router.Use(Serve("/", *dataDir))
 
 	return router
-}
-
-// GET method: serve files as is and directories as html pages.
-//
-// entry points:
-// / -- redirect to browser.html
-// /browser.html -- AJAX based HTML client for directory browsing
-// /repo -- download files, TODO directories
-// /api -- REST API
-// /api/dirtree/ -- directory listing
-func Serve(urlPrefix string, root string) gin.HandlerFunc {
-	fs := http.Dir(root)
-
-	return func(c *gin.Context) {
-		upath := c.Request.URL.Path
-		if !strings.HasPrefix(upath, "/") {
-			upath = "/" + upath
-		}
-
-		if upath == "/" {
-			c.Redirect(http.StatusMovedPermanently, "/browser.html")
-		}
-
-		if upath == "/browser.html" {
-			http.ServeFile(c.Writer, c.Request, "browser.html")
-			return
-		}
-
-		serveAsJson := false
-
-		if strings.HasPrefix(upath, dirTreePrefix+"/") {
-			upath = strings.TrimPrefix(upath, dirTreePrefix)
-			serveAsJson = true
-		} else if strings.HasPrefix(upath, repoPrefix+"/") {
-			upath = strings.TrimPrefix(upath, repoPrefix)
-		}
-
-		d, err := fs.Open(upath)
-		if os.IsNotExist(err) {
-			c.AbortWithError(http.StatusNotFound, err)
-			return
-		}
-		if err != nil {
-			c.AbortWithError(http.StatusInternalServerError, err)
-			return
-		}
-		s, err := d.Stat()
-		if err != nil {
-			c.AbortWithError(http.StatusInternalServerError, err)
-			return
-		}
-		if s.IsDir() {
-			c.Status(http.StatusOK)
-			if serveAsJson {
-				jsonDirList(c.Writer, c.Request, d, upath)
-			} else {
-				dirList(c.Writer, c.Request, d, upath)
-			}
-			return
-		}
-		if serveAsJson {
-			c.AbortWithError(http.StatusNotFound, fmt.Errorf("path is not a directory"))
-			return
-		}
-		http.ServeFile(c.Writer, c.Request, path.Join(root, upath[1:]))
-	}
 }
 
 type Filter interface {
@@ -371,9 +367,9 @@ func dirEntries(r *http.Request, f http.File, urlpath string) ([]fs.DirEntry, *H
 		dirs = dirs[:len(dirs)-tbd]
 	}
 
-	// get ordering
-	ordering := ""
-	asc := true
+	// get ordering, by default newest to oldest
+	ordering := "m"
+	asc := false
 	c := strings.ToLower(r.URL.Query().Get("c"))
 	if c != "" {
 		ordering = c
@@ -412,37 +408,6 @@ func dirEntries(r *http.Request, f http.File, urlpath string) ([]fs.DirEntry, *H
 	return dirs, nil
 }
 
-func dirList(w http.ResponseWriter, r *http.Request, f http.File, urlpath string) {
-	dirs, err := dirEntries(r, f, urlpath)
-	if err != nil {
-		http.Error(w, err.message, err.code)
-		return
-	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-
-	current := r.URL.Path
-	fmt.Fprintf(w, "<html><head><title>Index of %s</title></head><body><h1>%s</h1><hr><pre>\n", current, current)
-	if current != "/" {
-		fmt.Fprintf(w, "<a href=\"../\">../</a>\n")
-	}
-	for i, n := 0, len(dirs); i < n; i++ {
-		name := dirs[i].Name()
-		if dirs[i].IsDir() {
-			name += "/"
-		}
-		// name may contain '?' or '#', which must be escaped to remain
-		// part of the URL path, and not indicate the start of a query
-		// string or fragment.
-		url := url.URL{Path: name}
-		info, err := dirs[i].Info()
-		if err != nil {
-			log.Info("error reading entry ", i, ": ", err)
-		}
-		fmt.Fprintf(w, "<a href=\"%s\">%s</a>%-*s %20s  %20d\n", url.String(), html.EscapeString(name), 50-len(name), "", info.ModTime().Format(time.RFC3339), info.Size())
-	}
-	fmt.Fprintf(w, "<hr>%s</pre></body></html>\n", time.Now().Format(time.RFC3339))
-}
-
 type DirEntry struct {
 	Name       string
 	Size       int64
@@ -471,15 +436,15 @@ func jsonDirList(w gin.ResponseWriter, r *http.Request, f http.File, urlpath str
 			fullpath := filepath.Join(urlpath, e.Name())
 			var url string
 			if e.IsDir() {
-				url = dirTreePrefix + fullpath
+				url = "/api/v1/dirtree" + fullpath
 			} else {
-				url = repoPrefix + fullpath
+				url = "/api/v1/repo" + fullpath
 			}
 
 			metadata, ok := GetMetadata(fullpath)
 			expiryTime := uint64(0)
-			lockName := make([]string, 0)
-			tags := make([]string, 0)
+			lockName := []string{}
+			tags := []string{}
 			if ok {
 				if metadata.Expires == 0 {
 					expiryTime = 0
@@ -500,6 +465,13 @@ func jsonDirList(w gin.ResponseWriter, r *http.Request, f http.File, urlpath str
 				Url:        url,
 				Locks:      lockName,
 				Tags:       tags,
+			}
+			// normalize so empty slices are [] not null in json
+			if entry.Locks == nil {
+				entry.Locks = []string{}
+			}
+			if entry.Tags == nil {
+				entry.Tags = []string{}
 			}
 			entries = append(entries, entry)
 		}
