@@ -106,7 +106,7 @@ func TestListingEntries(t *testing.T) {
 
 	// test listing
 
-	req, _ = http.NewRequest("GET", "/api/v1/meta?c=m&o=a", nil) // modtime asc
+	req, _ = http.NewRequest("GET", "/api/v1/dirtree?c=m&o=a", nil) // modtime asc
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 	assert.Equal(t, 200, w.Code)
@@ -150,14 +150,14 @@ func TestListingEntries(t *testing.T) {
 		ExpiryTime: 0,
 		IsDir:      true,
 		FullPath:   "/subdir",
-		Url:        "/api/v1/meta/subdir",
+		Url:        "/api/v1/dirtree/subdir",
 		Locks:      []string{},
 		Tags:       []string{},
 	}
 	assert.Equal(t, expected3, subdir)
 
 	// list subdir
-	req, _ = http.NewRequest("GET", "/api/v1/meta/subdir", nil)
+	req, _ = http.NewRequest("GET", "/api/v1/dirtree/subdir", nil)
 	w = httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 	assert.Equal(t, 200, w.Code)
@@ -185,7 +185,7 @@ func TestListingSingleFile(t *testing.T) {
 
 	router := router()
 
-	req, _ := http.NewRequest("GET", "/api/v1/meta/singlefile/a.bin", nil)
+	req, _ := http.NewRequest("GET", "/api/v1/dirtree/singlefile/a.bin", nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 	assert.Equal(t, 200, w.Code)
@@ -201,7 +201,7 @@ func TestUrlIsCorrect(t *testing.T) {
 
 	router := router()
 
-	req, _ := http.NewRequest("GET", "/api/v1/meta/urltest", nil)
+	req, _ := http.NewRequest("GET", "/api/v1/dirtree/urltest", nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 	assert.Equal(t, 200, w.Code)
@@ -222,35 +222,35 @@ func TestListingOrdering(t *testing.T) {
 	router := router()
 
 	// default - modtime desc
-	req, _ := http.NewRequest("GET", "/api/v1/meta/listing", nil)
+	req, _ := http.NewRequest("GET", "/api/v1/dirtree/listing", nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 	assert.Equal(t, 200, w.Code)
 	assert.Equal(t, []string{"c2.txt", "c.txt", "a.bin", "b.txt"}, fileNames(w.Body))
 
 	// test ordering - name desc
-	req, _ = http.NewRequest("GET", "/api/v1/meta/listing?c=n&o=d", nil)
+	req, _ = http.NewRequest("GET", "/api/v1/dirtree/listing?c=n&o=d", nil)
 	w = httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 	assert.Equal(t, 200, w.Code)
 	assert.Equal(t, []string{"c2.txt", "c.txt", "b.txt", "a.bin"}, fileNames(w.Body))
 
 	// // test ordering - name asc
-	req, _ = http.NewRequest("GET", "/api/v1/meta/listing?c=n&o=a", nil)
+	req, _ = http.NewRequest("GET", "/api/v1/dirtree/listing?c=n&o=a", nil)
 	w = httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 	assert.Equal(t, 200, w.Code)
 	assert.Equal(t, []string{"a.bin", "b.txt", "c.txt", "c2.txt"}, fileNames(w.Body))
 
 	// test ordering - modification desc
-	req, _ = http.NewRequest("GET", "/api/v1/meta/listing?c=m&o=d", nil)
+	req, _ = http.NewRequest("GET", "/api/v1/dirtree/listing?c=m&o=d", nil)
 	w = httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 	assert.Equal(t, 200, w.Code)
 	assert.Equal(t, []string{"c2.txt", "c.txt", "a.bin", "b.txt"}, fileNames(w.Body))
 
 	// test ordering - modification time asc
-	req, _ = http.NewRequest("GET", "/api/v1/meta/listing?c=m&o=a", nil)
+	req, _ = http.NewRequest("GET", "/api/v1/dirtree/listing?c=m&o=a", nil)
 	w = httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 	assert.Equal(t, 200, w.Code)
@@ -264,21 +264,21 @@ func TestListingFilter(t *testing.T) {
 	router := router()
 
 	// nothing matches
-	req, _ := http.NewRequest("GET", "/api/v1/meta/listingfilter/?qt=nothing", nil)
+	req, _ := http.NewRequest("GET", "/api/v1/dirtree/listingfilter/?qt=nothing", nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 	assert.Equal(t, 200, w.Code)
 	assert.Equal(t, []string{}, fileNames(w.Body))
 
 	// tag with no value checks existence of tags
-	req, _ = http.NewRequest("GET", "/api/v1/meta/listingfilter?qt=branch&c=n", nil)
+	req, _ = http.NewRequest("GET", "/api/v1/dirtree/listingfilter?qt=branch&c=n", nil)
 	w = httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 	assert.Equal(t, 200, w.Code)
 	assert.Equal(t, []string{"c2.txt", "c.txt", "a.bin"}, fileNames(w.Body))
 
 	// tag with value needs matching value
-	req, _ = http.NewRequest("GET", "/api/v1/meta/listingfilter?qt=branch=dev&C=n", nil)
+	req, _ = http.NewRequest("GET", "/api/v1/dirtree/listingfilter?qt=branch=dev&C=n", nil)
 	w = httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 	assert.Equal(t, 200, w.Code)
@@ -286,49 +286,49 @@ func TestListingFilter(t *testing.T) {
 
 	// lock filter
 	// filter for lock string whihc does not exists
-	req, _ = http.NewRequest("GET", "/api/v1/meta/listingfilter?ql=devel-notexist", nil)
+	req, _ = http.NewRequest("GET", "/api/v1/dirtree/listingfilter?ql=devel-notexist", nil)
 	w = httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 	assert.Equal(t, 200, w.Code)
 	assert.Equal(t, []string{}, fileNames(w.Body))
 
 	// lock with matching
-	req, _ = http.NewRequest("GET", "/api/v1/meta/listingfilter?ql=devel", nil)
+	req, _ = http.NewRequest("GET", "/api/v1/dirtree/listingfilter?ql=devel", nil)
 	w = httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 	assert.Equal(t, 200, w.Code)
 	assert.Equal(t, []string{"c.txt"}, fileNames(w.Body))
 
 	// name prefix filter
-	req, _ = http.NewRequest("GET", "/api/v1/meta/listingfilter?qn=notexist", nil)
+	req, _ = http.NewRequest("GET", "/api/v1/dirtree/listingfilter?qn=notexist", nil)
 	w = httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 	assert.Equal(t, 200, w.Code)
 	assert.Equal(t, []string{}, fileNames(w.Body))
 
 	// matching
-	req, _ = http.NewRequest("GET", "/api/v1/meta/listingfilter?qn=c", nil)
+	req, _ = http.NewRequest("GET", "/api/v1/dirtree/listingfilter?qn=c", nil)
 	w = httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 	assert.Equal(t, 200, w.Code)
 	assert.Equal(t, []string{"c2.txt", "c.txt"}, fileNames(w.Body))
 
 	// matching
-	req, _ = http.NewRequest("GET", "/api/v1/meta/listingfilter?qn=b.", nil)
+	req, _ = http.NewRequest("GET", "/api/v1/dirtree/listingfilter?qn=b.", nil)
 	w = httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 	assert.Equal(t, 200, w.Code)
 	assert.Equal(t, []string{"b.txt"}, fileNames(w.Body))
 
 	// combination - one not matching
-	req, _ = http.NewRequest("GET", "/api/v1/meta/listingfilter?qt=devel&qn=c", nil)
+	req, _ = http.NewRequest("GET", "/api/v1/dirtree/listingfilter?qt=devel&qn=c", nil)
 	w = httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 	assert.Equal(t, 200, w.Code)
 	assert.Equal(t, []string{}, fileNames(w.Body))
 
 	// combination - one matching
-	req, _ = http.NewRequest("GET", "/api/v1/meta/listingfilter?qt=branch=dev&qn=c", nil)
+	req, _ = http.NewRequest("GET", "/api/v1/dirtree/listingfilter?qt=branch=dev&qn=c", nil)
 	w = httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 	assert.Equal(t, 200, w.Code)
@@ -393,7 +393,7 @@ func TestPostWithMkdir(t *testing.T) {
 	router.ServeHTTP(w, req)
 	assert.Equal(t, 200, w.Code)
 
-	req, _ = http.NewRequest("GET", "/api/v1/meta/listing/create/me", nil)
+	req, _ = http.NewRequest("GET", "/api/v1/dirtree/listing/create/me", nil)
 	w = httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 	assert.Equal(t, 200, w.Code)

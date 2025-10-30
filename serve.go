@@ -91,7 +91,7 @@ func handleUpload(c *gin.Context, allowOverwrite bool) {
 	triggers <- name
 }
 
-func handleMetaGet(c *gin.Context) {
+func handleDirtreeGet(c *gin.Context) {
 	name := c.Param("name")
 
 	httpDir := http.Dir(*dataDir)
@@ -144,9 +144,7 @@ func router() *gin.Engine {
 	// /api
 	api := router.Group("/api/v1")
 
-	// /api/meta
-	meta := api.Group("/meta")
-	meta.DELETE("/*name", func(c *gin.Context) {
+	api.DELETE("/meta/*name", func(c *gin.Context) {
 		name := c.Param("name")
 		slash := strings.LastIndex(name, "/")
 		if slash < 0 {
@@ -172,11 +170,11 @@ func router() *gin.Engine {
 		SetMetadata(name, m)
 	})
 
-	meta.GET("", func(c *gin.Context) {
+	api.GET("/dirtree", func(c *gin.Context) {
 		c.Params = append(c.Params, gin.Param{Key: "name", Value: "/"})
-		handleMetaGet(c)
+		handleDirtreeGet(c)
 	})
-	meta.GET("/*name", handleMetaGet)
+	api.GET("/dirtree/*name", handleDirtreeGet)
 
 	// /api/repo - download/upload
 	repo := api.Group("/repo")
@@ -440,7 +438,7 @@ func pathToDirEntry(fullpath string, e fs.DirEntry) (DirEntry, error) {
 	}
 	var url string
 	if e.IsDir() {
-		url = "/api/v1/meta" + fullpath
+		url = "/api/v1/dirtree" + fullpath
 	} else {
 		url = "/api/v1/repo" + fullpath
 	}
