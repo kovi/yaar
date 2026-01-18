@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Artifactory</title>
+    <!-- System assets are shielded under /_/static/ -->
+    <link rel="icon" type="image/png" href="/_/static/favicon.png">
+    <link rel="stylesheet" href="/_/static/css/style.css">
+    <link rel="stylesheet" href="/_/static/css/common.css">
+    <link rel="stylesheet" href="/_/static/css/app.css">
+</head>
+
+<body>
+
+
+    <header class="af-navbar">
+        <div class="af-navbar-inner">
+            <!-- 1. LEFT -->
+            <div class="af-navbar-left">
+                <a href="/" class="af-navbar-brand nav-link"><span>YAAR</span></a>
+                <nav class="af-navbar-menu">
+                    <a href="/" class="af-navbar-link nav-link" data-route="files">Files</a>
+                    <a href="/_/streams" class="af-navbar-link nav-link" data-route="streams">Streams</a>
+                </nav>
+            </div>
+
+            <!-- 2. CENTER (Flexible) -->
+            <div class="af-navbar-search">
+                <input type="text" placeholder="Search..." id="global-search" autocomplete="off">
+                <!-- Dropdown will be injected here via JS -->
+            </div>
+
+            <!-- 3. RIGHT -->
+            <div class="af-navbar-right">
+                <button class="btn btn-ghost btn-settings" title="Settings">⚙️</button>
+            </div>
+        </div>
+    </header>
+
+    <main id="app">
+        <!-- Content injected by app.js -->
+    </main>
+
+    <script type="module" src="/_/static/js/app.js"></script>
+</body>
+
+</html>

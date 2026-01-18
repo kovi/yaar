@@ -1,0 +1,5 @@
+server:
+  jwt_secret: averylonglongandrandomlongandrandompasswordsecret
+storage:
+  protected_paths:
+    - /protected

@@ -1,0 +1,162 @@
+/* Base styling for the navbar identity */
+.af-status-indicator {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--text-main);
+    cursor: pointer;
+    padding: 6px 12px;
+    border-radius: var(--radius);
+    transition: all 0.2s ease;
+    user-select: none;
+}
+
+.af-status-indicator:hover {
+    background: var(--bg-alt);
+}
+
+/* The Dot */
+.af-status-indicator::before {
+    content: '';
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    transition: all 0.2s ease;
+}
+
+/* --- GUEST STATE (Inactive) --- */
+.af-status-guest {
+    color: var(--text-muted);
+}
+
+.af-status-guest::before {
+    border: 1.5px solid var(--border); /* Hollow dot */
+    background: transparent;
+}
+
+/* --- LOGGED-IN STATE (Active) --- */
+.af-status-user {
+    font-weight: 500;
+}
+
+.af-status-user::before {
+    background: var(--primary); /* Solid blue dot */
+    border: 1.5px solid var(--primary);
+    box-shadow: 0 0 0 2px rgba(33, 150, 243, 0.1); /* Subtle "glow" */
+}
+
+/* Admin variation */
+.af-status-admin::before {
+    background: #9c27b0; /* Purple dot for Admin */
+    border-color: #9c27b0;
+}
+
+.af-role-label {
+    font-size: 10px;
+    color: var(--text-muted);
+    font-weight: 400;
+    margin-left: -2px;
+}
+
+/* File Browser Specifics */
+.af-file-indent { padding-left: 32px !important; }
+.af-col-mono { font-family: ui-monospace, monospace; font-size: 12px; }
+
+/* Search Dropdown Specifics */
+.af-search-dropdown { top: calc(100% + 5px); left: 0; right: 0; }
+.af-search-meta { display: flex; gap: 4px; margin-top: 4px; }
+
+/* Transfer Widget Specifics */
+.af-transfer-widget { position: fixed; bottom: 20px; right: 20px; width: 320px; }
+.af-transfer-path { font-size: 10px; color: var(--text-muted); display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Config Viewer in Settings */
+.af-config-viewer {
+    background: #1e1e1e; /* Dark theme */
+    color: #d4d4d4;
+    padding: 12px;
+    border-radius: var(--radius);
+    font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+    font-size: 12px;
+    border: 1px solid var(--border);
+    
+    /* THE FIX: Full width logic */
+    width: 100%;             /* Occupy full parent width */
+    box-sizing: border-box;  /* Include padding/border in the 100% calculation */
+    display: block;          /* Ensure it's not inline */
+    
+    /* Scroll behavior */
+    overflow-x: auto;        /* Horizontal scroll for long lines */
+    margin-top: 8px;
+}
+
+.af-config-viewer pre {
+    margin: 0;
+    white-space: pre;        /* Keep formatting from JSON.stringify */
+    word-wrap: normal;       /* Don't wrap lines, use the scrollbar instead */
+}
+
+.af-action-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 15px;
+    background-color: var(--bg-alt);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: 24px; /* Space before the info group starts */
+}
+
+.af-action-banner-text {
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.af-select {
+    padding: 8px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg-main);
+    width: 100%;
+}
+
+/* Warning styling for the secret reveal */
+.af-token-warning {
+    color: #856404;
+    background-color: #fffbe6;
+    border: 1px solid #ffe58f;
+    padding: 10px;
+    border-radius: var(--radius);
+    font-size: 12px;
+    margin-bottom: 15px;
+}
+
+/* Specific Policy Badges */
+.badge-policy-immutable { 
+    background: #f3e5f5; color: #7b1fa2; border: 1px solid #d1c4e9; 
+} /* Purple */
+
+.badge-policy-protected { 
+    background: #fff3e0; color: #e65100; border: 1px solid #ffe0b2; 
+} /* Orange */
+
+.badge-policy-restricted { 
+    background: #ffebee; color: #c62828; border: 1px solid #ffcdd2; 
+} /* Red */
+
+/* A tiny dot next to the filename if it has any restriction */
+.af-policy-indicator {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    display: inline-block;
+    margin-left: 6px;
+    opacity: 0.3;
+}
+
+/* Color code the indicator based on severity */
+.af-policy-indicator.restricted { background: var(--danger); opacity: 0.5; }
+.af-policy-indicator.protected { background: var(--warning); opacity: 0.5; }

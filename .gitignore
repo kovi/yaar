@@ -1,5 +1,9 @@
 yaar
-artifactory
 output
 triggered
 test.tmp
+e2e/suite-*
+artifactory.db*
+audit.log
+storage
+staging

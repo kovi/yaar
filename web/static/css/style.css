@@ -1,0 +1,1283 @@
+:root {
+    --primary: #2196F3;
+    --primary-hover: #1976D2;
+    --danger: #d32f2f;
+    --danger-bg: #ffeeee;
+    --success: #2e7d32;
+    --success-bg: #e8f5e9;
+    --warning: #ed6c02;
+    --warning-bg: #fff4e5;
+    --bg-main: #ffffff;
+    --bg-alt: #f8f9fa;
+    --border: #e0e0e0;
+    --text-main: #333333;
+    --text-muted: #666666;
+    --radius: 6px;
+    --shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+/* --- Base & Layout --- */
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: var(--text-main);
+    background-color: var(--bg-alt);
+    margin: 0;
+    line-height: 1.5;
+}
+
+#app {
+    max-width: 1200px;
+    margin: 20px auto;
+    padding: 0 20px;
+}
+
+/* --- Breadcrumbs --- */
+.af-breadcrumb {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-bottom: 20px;
+    padding: 8px 12px;
+    background: var(--bg-main);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    font-size: 13px;
+}
+
+.af-breadcrumb-item {
+    display: flex;
+    align-items: center;
+}
+
+/* The separator */
+.af-breadcrumb-item:not(:last-child)::after {
+    content: '/';
+    margin: 0 8px;
+    color: var(--border);
+    font-weight: 400;
+}
+
+.af-breadcrumb-link {
+    color: var(--primary);
+    text-decoration: none;
+    padding: 2px 6px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.af-breadcrumb-link:hover {
+    background: var(--bg-alt);
+    text-decoration: underline;
+}
+
+.af-breadcrumb-current {
+    color: var(--text-main);
+    font-weight: 600;
+    padding: 2px 6px;
+}
+
+/* --- Containers (Cards) --- */
+.af-card {
+    background: var(--bg-main);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+    margin-bottom: 24px;
+    box-shadow: var(--shadow);
+}
+
+.af-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 15px;
+    padding-bottom: 10px;
+}
+
+.af-card-header h2,
+.af-card-header h3 {
+    margin: 0;
+}
+
+.af-info-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.af-info-list .af-info-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    align-items: baseline;
+    font-size: 14px;
+}
+
+.af-info-item label {
+    display: block;
+    font-weight: 600;
+    color: var(--text-muted);
+    font-size: 11px;
+    text-transform: uppercase;
+    margin: 0;
+}
+
+/* --- Action Bar --- */
+.af-actions {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 16px;
+    justify-content: flex-end;
+}
+
+/* --- Tables --- */
+.af-table-wrapper {
+    background: var(--bg-main);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    box-shadow: var(--shadow);
+}
+
+.af-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+}
+
+.af-table th {
+    background: var(--bg-alt);
+    text-align: left;
+    padding: 12px;
+    font-weight: 600;
+    color: var(--text-muted);
+    border-bottom: 2px solid var(--border);
+}
+
+.af-table td {
+    padding: 12px;
+    border-bottom: 1px solid var(--border);
+}
+
+.af-table tr:last-child td {
+    border-bottom: none;
+}
+
+.af-table tr:hover {
+    background-color: #fcfcfc;
+}
+
+.hidden {
+    display: none !important;
+}
+/* 
+.btn {
+    padding: 8px 16px;
+    border-radius: var(--radius);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    border: 1px solid transparent;
+    transition: all 0.2s;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.btn-primary {
+    background: var(--primary);
+    color: white;
+}
+
+.btn-primary:hover {
+    background: var(--primary-hover);
+}
+
+.btn-danger {
+    background: transparent;
+    color: var(--danger);
+    border-color: var(--danger);
+}
+
+.btn-danger:hover {
+    background: var(--danger);
+    color: white;
+}
+
+.btn-ghost {
+    background: transparent;
+    color: var(--text-muted);
+    border: 1px solid transparent;
+    transition: all 0.15s ease-in-out;
+}
+
+.btn-ghost:hover {
+    background-color: rgba(0, 0, 0, 0.04);
+    border-color: var(--border);
+    color: var(--text-main);
+}
+
+.btn-ghost:active {
+    background-color: rgba(0, 0, 0, 0.08);
+    transform: translateY(1px);
+}
+
+.btn-ghost:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 1px;
+}
+
+.btn-ghost.btn-danger:hover {
+    background-color: var(--danger-bg);
+    border-color: #ffcdd2;
+    color: var(--danger);
+}
+
+.btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+} 
+*/
+
+/* --- Badges --- */
+.badge {
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.badge-success {
+    background: var(--success-bg);
+    color: var(--success);
+}
+
+.badge-info {
+    background: #e3f2fd;
+    color: #1976d2;
+}
+
+.badge-outline {
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+}
+
+.badge-danger {
+    background: var(--danger);
+    color: white;
+}
+
+/* --- Forms & Dialogs --- */
+.af-form {
+    display: flex;
+    flex-direction: column;
+}
+
+.af-form label {
+    margin-top: 0.5rem;
+    margin-bottom: 0.2rem;
+    font-size: 13px;
+    font-weight: 600;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.af-form input {
+    padding: 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    font-size: 14px;
+}
+
+/* Reset the label behavior for checkboxes */
+.af-check-group {
+    flex-direction: row !important;
+    /* Override vertical stack */
+    align-items: center !important;
+    justify-content: flex-start !important;
+    gap: 10px;
+    cursor: pointer;
+    user-select: none;
+    padding: 4px 0;
+    margin-top: 8px;
+    font-weight: 500;
+}
+
+/* Ensure the checkbox doesn't grow or shrink */
+.af-check-group input[type="checkbox"] {
+    width: 16px !important;
+    /* Force standard size */
+    height: 16px !important;
+    margin: 0 !important;
+    cursor: pointer;
+    flex-shrink: 0;
+    margin-top: -1px !important;
+    /* Optical alignment with text baseline */
+    /* Prevent squishing on narrow screens */
+}
+
+/* Ensure the text stays on one line and looks balanced */
+.af-check-group span {
+    font-size: 13px;
+    color: var(--text-main);
+    line-height: 1;
+    white-space: nowrap;
+    margin-left: 0.5rem;
+    /* Prevents the 2-3 line split */
+}
+
+/* Subtle hover effect for the whole row */
+.af-check-group:hover {
+    color: var(--primary);
+}
+
+/* --- Transfer Widget (Persistent) --- */
+.transfer-widget {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    width: 320px;
+    background: var(--bg-main);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+    z-index: 10000;
+}
+
+/* --- Progress Bars --- */
+.af-progress-track {
+    height: 6px;
+    background: var(--bg-alt);
+    border-radius: 10px;
+    overflow: hidden;
+    margin: 8px 0;
+    border: 1px solid var(--border);
+}
+
+.af-progress-fill {
+    height: 100%;
+    background: var(--primary);
+    width: 0%;
+    transition: width 0.3s ease, background 0.3s ease;
+}
+
+.af-transfer-path {
+    display: block;
+    font-size: 10px;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    /* Truncate with ... */
+    max-width: 240px;
+    margin-top: 2px;
+    cursor: help;
+    /* Change cursor to signal tooltip is available */
+}
+
+.af-transfer-item:hover .af-transfer-path {
+    color: var(--text-main);
+}
+
+.af-transfer-item.status-error .file-name {
+    color: var(--danger);
+    text-decoration: underline dotted;
+    /* Visual hint for tooltip */
+}
+
+/* --- Floating Transfer Widget --- */
+.af-transfer-widget {
+    position: fixed;
+    bottom: 0px;
+    right: 20px;
+    width: 320px;
+    z-index: 10000;
+    padding: 0;
+    margin-bottom: 0px !important;
+}
+
+.af-transfer-widget .af-card-header {
+    background: var(--text-main);
+    color: white;
+    padding: 10px 15px;
+    margin-bottom: 0;
+    border-radius: var(--radius) var(--radius) 0 0;
+}
+
+.af-transfer-list {
+    max-height: 350px;
+    overflow-y: auto;
+    background: var(--bg-main);
+    transition: max-height 0.3s ease;
+}
+
+.af-transfer-list.minimized {
+    max-height: 0;
+}
+
+.af-transfer-item {
+    padding: 12px 15px;
+    border-bottom: 1px solid var(--border);
+}
+
+.af-transfer-item:last-child {
+    border-bottom: none;
+}
+
+.af-transfer-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+}
+
+/* Success/Error overrides for Progress */
+.status-completed .af-progress-fill {
+    background: var(--success);
+}
+
+.status-error .af-progress-fill {
+    background: var(--danger);
+}
+
+.status-cancelled .af-progress-fill {
+    background: var(--text-muted);
+}
+
+
+/* --- Modals (Native Dialog) --- */
+.af-modal {
+    border: none;
+    border-radius: var(--radius);
+    padding: 0;
+    width: 95%;
+    max-width: 450px;
+    background: var(--bg-main);
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+
+    /* 1. Constraint the dialog */
+    max-height: 90vh;
+    margin: auto;
+
+    /* 2. THE FIX: Make the dialog itself the flex container */
+    flex-direction: column;
+    overflow: hidden;
+    /* Prevents the dialog from showing double scrollbars */
+}
+
+.af-modal[open] {
+    display: flex;
+}
+
+.af-modal-header {
+    flex-shrink: 0;
+    /* Keep fixed */
+    background: var(--bg-alt);
+    padding: 12px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.af-modal-body {
+    padding: 20px;
+
+    /* 4. THE FIX: Allow this section to grow and scroll */
+    flex: 1 1 auto;
+    overflow-y: auto;
+    min-height: 0;
+}
+
+.af-modal-footer {
+    flex-shrink: 0;
+    /* Keep fixed */
+    padding: 12px 20px;
+    background: var(--bg-alt);
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+}
+
+.af-modal::backdrop {
+    background: rgba(0, 0, 0, 0.4);
+    backdrop-filter: blur(3px);
+    /* Modern frosted glass effect */
+}
+
+.af-modal-header h3 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+}
+
+/* 3. If there is a form inside, it must also be a flex-column that fills the space */
+.af-modal form {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    margin: 0;
+}
+
+.af-modal form input {
+    width: 100%;
+    box-sizing: border-box;
+    /* Crucial for padding/width calculation */
+}
+
+/* --- Global Navigation --- */
+.af-navbar {
+    background: var(--bg-main);
+    border-bottom: 1px solid var(--border);
+    height: 60px;
+    display: flex;
+    align-items: center;
+    position: sticky;
+    top: 0;
+    z-index: 1000;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.af-navbar-inner {
+    max-width: 1400px;
+    width: 100%;
+    margin: 0 auto;
+    padding: 0 20px;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    /* Consistent gap between all 3 main sections */
+}
+
+.af-navbar-left {
+    display: flex;
+    align-items: center;
+    gap: 32px;
+    flex-shrink: 0;
+    /* Brand and Menu never shrink */
+}
+
+/* The Search Bar: It takes up the middle space */
+.af-navbar-search {
+    flex: 1;
+    position: relative;
+    /* Anchors the dropdown */
+    max-width: 500px;
+    /* Prevents search from getting too wide on large screens */
+    display: flex;
+    align-items: center;
+}
+
+.af-navbar-search input {
+    width: 100%;
+    background: var(--bg-alt);
+    border: 1px solid var(--border);
+    padding: 8px 12px;
+    border-radius: var(--radius);
+    font-size: 13px;
+    transition: all 0.2s ease;
+}
+
+/* On focus, we don't change width, we just change the border/shadow 
+   to prevent jumping and overlapping next-door buttons */
+.af-navbar-search input:focus {
+    background: #fff;
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(33, 150, 243, 0.1);
+}
+
+/* The Utility Side (Badge, Settings) */
+.af-navbar-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+    /* Settings button never gets squished */
+}
+
+/* --- Search Dropdown Alignment Fix --- */
+.af-search-dropdown {
+    position: absolute;
+    top: calc(100% + 5px);
+    /* 5px gap below the input */
+    left: 0;
+    right: 0;
+    /* Fills EXACTLY the width of .af-navbar-search */
+    background: var(--bg-main);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+    z-index: 1100;
+    max-height: 450px;
+    overflow-y: auto;
+}
+
+.af-navbar-brand {
+    font-weight: 700;
+    font-size: 18px;
+    color: var(--text-main);
+    text-decoration: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.af-navbar-brand span {
+    background: var(--primary);
+    color: white;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 12px;
+}
+
+.af-navbar-inner {
+    max-width: 1400px;
+    /* Wider for better table viewing */
+    width: 100%;
+    margin: 0 auto;
+    padding: 0 20px;
+    display: flex;
+    align-items: center;
+    /* Remove justify-content: space-between; we use margin-right: auto instead */
+}
+
+.af-navbar-left {
+    display: flex;
+    align-items: center;
+    gap: 32px;
+    /* Space between Logo and first Nav Link */
+    margin-right: auto;
+    /* Pushes utility to the far right */
+}
+
+.af-navbar-menu {
+    display: flex;
+    gap: 4px;
+    height: 100%;
+}
+
+.af-navbar-link {
+    text-decoration: none;
+    color: var(--text-muted);
+    font-size: 14px;
+    font-weight: 500;
+    padding: 6px 12px;
+    border-radius: var(--radius);
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.af-navbar-link:hover {
+    color: var(--text-main);
+    background: var(--bg-alt);
+}
+
+.af-navbar-link.active {
+    color: var(--primary);
+    background: #eef7ff;
+}
+
+/* --- Compact Table Variant --- */
+.af-table-compact th,
+.af-table-compact td {
+    padding: 6px 12px;
+    font-size: 13px;
+}
+
+.af-icon-primary {
+    color: var(--primary);
+}
+
+.af-back-row:hover .af-icon-primary {
+    color: var(--primary-hover);
+}
+
+.af-back-row .af-file-icon {
+    color: var(--text-muted);
+    /* Start with a subtle gray */
+    opacity: 0.6;
+    /* Make it even less 'heavy' */
+    transition: all 0.2s ease;
+}
+
+.af-back-row:hover .af-file-icon {
+    color: var(--primary);
+    /* Turn blue on hover */
+    opacity: 1;
+    /* Full visibility */
+    transform: translateY(-1px);
+    /* Subtle 'lift' animation */
+}
+
+.af-back-row .af-file-name {
+    color: var(--text-muted);
+    font-size: 13px;
+    /* Slightly smaller to stay out of the way */
+}
+
+/* Ensure the parent row feels like a utility, not a data item */
+.af-back-row {
+    background-color: var(--bg-alt) !important;
+    border-bottom: 1px solid var(--border);
+    height: 32px;
+    /* Slightly shorter than standard rows */
+}
+
+.af-file-row {
+    transition: background-color 0.1s;
+}
+
+.af-file-row:hover {
+    background-color: #f0f7ff !important;
+    /* Subtle blue tint on hover */
+}
+
+.af-file-wrapper {
+    display: flex;
+    align-items: center;
+}
+
+.af-attr-row {
+    /* margin-left = icon width (20) + margin-right (8) */
+    margin-left: 28px;
+
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-top: 2px;
+
+    /* Ensure no styles from the parent link leak here */
+    pointer-events: auto;
+}
+
+/* The clickable area */
+.af-file-link {
+    text-decoration: none !important;
+    /* Remove underline from the icon */
+    display: inline-flex;
+    align-items: center;
+    color: var(--text-main);
+    cursor: pointer;
+}
+
+/* Only underline the text part on hover */
+.af-file-link:hover .af-file-text {
+    text-decoration: underline;
+    color: var(--primary);
+}
+
+/* Ensure the icon doesn't shift or underline */
+.af-file-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    margin-right: 8px;
+    text-decoration: none !important;
+}
+
+/* Make sure SVGs inside follow the rule */
+.af-file-icon svg {
+    display: block;
+}
+
+.af-col-mono {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 12px;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+
+.af-file-row .af-row-actions {
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+
+.af-file-row:hover .af-row-actions {
+    opacity: 1;
+}
+
+/* --- Metadata & Status --- */
+.af-attr-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-wrap: wrap;
+    margin-top: 2px;
+    /* Small gap below filename */
+}
+
+/* Tags: Small and subtle */
+.badge-tag {
+    font-size: 10px;
+    padding: 1px 4px;
+    background: var(--bg-alt);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    color: var(--text-muted);
+}
+
+/* Expiry: Clock icon style */
+.expiry-info {
+    font-size: 11px;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    color: var(--text-muted);
+}
+
+.expiry-warning {
+    color: var(--warning) !important;
+    font-weight: 600;
+}
+
+.expiry-critical {
+    color: var(--danger) !important;
+    font-weight: 700;
+}
+
+/* Origin: Stream/Group indicators */
+.badge-origin {
+    font-size: 10px;
+    padding: 1px 5px;
+    background: #f0f0f0;
+    color: #555;
+    border-radius: 4px;
+    font-weight: 600;
+}
+
+.badge-stream {
+    border-left: 3px solid var(--primary);
+}
+
+.badge-group {
+    border-left: 3px solid #9c27b0;
+}
+
+/* Immutability */
+.lock-icon {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-left: 4px;
+    cursor: help;
+}
+
+/* Compact Actions */
+.af-row-actions {
+    display: flex;
+    gap: 4px;
+}
+
+.af-section-label {
+    display: block;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 12px;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 4px;
+}
+
+.af-hash-row {
+    margin-bottom: 12px;
+}
+
+.af-hash-row label {
+    display: block;
+    font-size: 11px;
+    font-weight: 600;
+    margin-bottom: 4px;
+}
+
+.af-hash-box {
+    display: flex;
+    align-items: center;
+    background: var(--bg-alt);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 4px 8px;
+    gap: 8px;
+}
+
+.af-hash-box code {
+    flex: 1;
+    font-size: 12px;
+    word-break: break-all;
+    /* Important for long SHA256 */
+    color: var(--text-main);
+    user-select: all;
+    /* Clicking the text selects the whole hash */
+    overflow-x: auto;
+}
+
+.copy-btn {
+    padding: 4px 8px !important;
+    font-size: 14px !important;
+}
+
+.btn-success {
+    color: var(--success) !important;
+    border-color: var(--success) !important;
+}
+
+/* --- Grouped Table Look --- */
+.af-table-grouped .af-group-row {
+    background-color: var(--bg-alt);
+    font-weight: 600;
+}
+
+.af-table-grouped .af-group-row td {
+    padding: 8px 12px;
+    border-bottom: 2px solid var(--border);
+    color: var(--text-main);
+}
+
+.af-table-grouped .af-file-indent {
+    padding-left: 32px !important;
+    /* Push file names to the right of the group icon */
+}
+
+.af-group-badge {
+    font-size: 10px;
+    background: #e0e0e0;
+    padding: 2px 6px;
+    border-radius: 4px;
+    margin-left: 10px;
+    vertical-align: middle;
+}
+
+/* Make the whole row look interactive */
+.af-table-clickable tbody tr {
+    cursor: pointer;
+    transition: background-color 0.1s;
+}
+
+.af-table-clickable tbody tr:hover {
+    background-color: #f0f7ff !important;
+}
+
+/* Ensure links inside clickable rows don't have separate underlines 
+   unless hovered specifically */
+.af-table-clickable tr:hover .af-link-text {
+    text-decoration: underline;
+    color: var(--primary);
+}
+
+/* Specific styling for the Group header in the detail view */
+.af-group-header-cell {
+    padding: 10px 12px !important;
+    vertical-align: middle;
+}
+
+.af-locate-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 10px;
+    color: var(--text-muted);
+    background: var(--bg-alt);
+    border: 1px solid var(--border);
+    text-decoration: none !important;
+    margin-left: 8px;
+    opacity: 0;
+    /* Hidden by default */
+    transition: all 0.2s ease;
+}
+
+/* Show the button when the row is hovered */
+.af-file-row:hover .af-locate-btn {
+    opacity: 1;
+}
+
+.af-locate-btn:hover {
+    color: var(--primary);
+    border-color: var(--primary);
+    background: #fff;
+}
+
+.af-locate-btn svg {
+    margin-right: 4px;
+}
+
+.af-search-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: var(--bg-main);
+    border: 1px solid var(--border);
+    border-radius: 0 0 var(--radius) var(--radius);
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+    margin-top: 5px;
+    z-index: 1100;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.af-search-item {
+    display: flex;
+    align-items: center;
+    padding: 10px 15px;
+    cursor: pointer;
+    border-bottom: 1px solid var(--bg-alt);
+}
+
+.af-search-item:hover {
+    background-color: #f0f7ff;
+}
+
+.af-search-icon {
+    font-size: 18px;
+    margin-right: 12px;
+    width: 24px;
+    text-align: center;
+}
+
+.af-search-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-main);
+}
+
+.af-search-reason {
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.af-search-empty {
+    padding: 20px;
+    text-align: center;
+    font-size: 13px;
+    color: var(--text-muted);
+}
+
+.af-search-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    overflow: hidden;
+}
+
+.af-search-top {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+}
+
+.af-search-path {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-family: ui-monospace, monospace;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.af-search-meta {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-wrap: wrap;
+    margin-top: 2px;
+}
+
+/* Adjust badge sizes specifically for search dropdown */
+.af-search-meta .badge-origin,
+.af-search-meta .badge-tag {
+    font-size: 9px;
+    padding: 0px 4px;
+}
+
+.af-search-item {
+    padding: 12px 15px;
+    /* Slightly more padding for the two-line layout */
+}
+
+.btn-settings {
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    padding: 0 !important;
+    /* Keep icon centered */
+}
+
+/* The initial highlighted state */
+.af-highlight-row {
+    background-color: rgba(33, 150, 243, 0.15) !important;
+    /* Light blue tint */
+    outline: 2px solid var(--primary);
+    outline-offset: -2px;
+    position: relative;
+    z-index: 1;
+    animation: af-highlight-fade 3s forwards;
+    /* Fades out over 3 seconds */
+}
+
+/* Add a subtle indicator bar on the left */
+.af-highlight-row td:first-child {
+    border-left: 4px solid var(--primary);
+}
+
+@keyframes af-highlight-fade {
+    0% {
+        background-color: rgba(33, 150, 243, 0.25);
+    }
+
+    70% {
+        background-color: rgba(33, 150, 243, 0.15);
+    }
+
+    100% {
+        background-color: transparent;
+        outline-color: transparent;
+    }
+}
+
+.af-upload-grid {
+    display: grid;
+    grid-template-columns: 300px 1fr;
+    /* Fixed width for meta, flexible for list */
+    gap: 24px;
+}
+
+
+.af-drop-zone-mini {
+    border: 2px dashed var(--border);
+    border-radius: var(--radius);
+    padding: 15px;
+    text-align: center;
+    font-size: 13px;
+    color: var(--text-muted);
+    cursor: pointer;
+    background: var(--bg-alt);
+    transition: all 0.2s;
+}
+
+.af-drop-zone-mini:hover,
+.af-drop-zone-mini.drag-over {
+    border-color: var(--primary);
+    background: #fff;
+    color: var(--primary);
+}
+
+.remove-file-btn {
+    padding: 0 6px !important;
+    font-size: 18px !important;
+    line-height: 1;
+}
+
+/* Ensure the modal expands for the wide grid */
+@media (min-width: 800px) {
+    #upload-dialog {
+        max-width: 800px;
+    }
+}
+
+@media (max-height: 600px) {
+    .af-upload-grid {
+        grid-template-columns: 1fr;
+        /* Stack vertically on small mobile landscape */
+    }
+}
+
+/* Container for input + icon */
+.af-input-with-action {
+    display: flex;
+    position: relative;
+    align-items: center;
+}
+
+.af-input-with-action input {
+    flex: 1;
+    padding-right: 40px;
+    /* Space for the icon */
+}
+
+.af-input-icon-btn {
+    position: absolute;
+    right: 5px;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    font-size: 18px;
+    padding: 4px 8px;
+    border-radius: var(--radius);
+    color: var(--text-muted);
+}
+
+.af-input-icon-btn:hover {
+    background: var(--bg-alt);
+    color: var(--primary);
+}
+
+/* Helper text below the input */
+.af-input-help {
+    display: block;
+    font-size: 10px;
+    color: var(--text-muted);
+    margin-top: 4px;
+}
+
+/* --- User & Dropdown Menu --- */
+.af-user-menu-container {
+    position: relative;
+    display: inline-block;
+}
+
+.af-dropdown {
+    position: absolute;
+    top: calc(100% + 10px);
+    right: 0;
+    min-width: 180px;
+    background: var(--bg-main);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    z-index: 1000;
+    padding: 6px 0;
+}
+
+.af-dropdown-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px;
+    font-size: 13px;
+    color: var(--text-main);
+    text-decoration: none;
+    cursor: pointer;
+    background: transparent;
+    border: none;
+    width: 100%;
+    text-align: left;
+}
+
+.af-dropdown-item:hover {
+    background-color: var(--bg-alt);
+    color: var(--primary);
+}
+
+.af-dropdown-divider {
+    height: 1px;
+    background: var(--border);
+    margin: 6px 0;
+}

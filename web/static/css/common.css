@@ -1,0 +1,55 @@
+:root {
+    --primary: #2196F3; --primary-hover: #1976D2;
+    --danger: #d32f2f; --danger-bg: #ffeeee;
+    --success: #2e7d32; --success-bg: #e8f5e9;
+    --bg-main: #ffffff; --bg-alt: #f8f9fa;
+    --border: #e0e0e0; --radius: 6px;
+    --text-main: #333333; --text-muted: #666666;
+    --shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+/* --- Buttons --- */
+.btn { padding: 8px 16px; border-radius: var(--radius); font-size: 13px; font-weight: 500; cursor: pointer; border: 1px solid transparent; display: inline-flex; align-items: center; gap: 6px; transition: all 0.15s; }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-primary { background: var(--primary); color: white; }
+.btn-primary:hover { background: var(--primary-hover); }
+.btn-ghost { background: transparent; color: var(--text-muted); }
+.btn-ghost:hover { background: rgba(0,0,0,0.05); border-color: var(--border); }
+.btn-danger { color: var(--danger); border-color: var(--danger); background: transparent; }
+.btn-danger:hover { background: var(--danger); color: white; }
+.btn-sm { font-size: 10px; }
+
+
+/* --- Badges --- */
+.badge { padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; text-transform: uppercase; }
+.badge-outline { border: 1px solid var(--border); color: var(--text-muted); }
+.badge-danger { background: var(--danger); color: white; }
+
+/* --- Modals --- */
+.af-modal { border: none; border-radius: var(--radius); padding: 0; background: var(--bg-main); box-shadow: 0 20px 40px rgba(0,0,0,0.2); max-height: 90vh; margin: auto; flex-direction: column; overflow: hidden; }
+.af-modal[open] { display: flex; }
+.af-modal::backdrop { background: rgba(0,0,0,0.4); backdrop-filter: blur(3px); }
+.af-modal-header { padding: 12px 20px; background: var(--bg-alt); border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
+.af-modal-body { padding: 20px; flex: 1 1 auto; overflow-y: auto; min-height: 0; }
+.af-modal-footer { padding: 12px 20px; background: var(--bg-alt); border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 12px; flex-shrink: 0; }
+
+/* --- Forms --- */
+.af-form { display: flex; flex-direction: column; gap: 5px; }
+.af-form label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; font-weight: 600; }
+.af-form input[type="text"], .af-form input[type="password"] { padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--radius); width: 100%; box-sizing: border-box; }
+
+/* --- Dropdowns --- */
+.af-dropdown { position: absolute; background: var(--bg-main); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); z-index: 1000; padding: 6px 0; min-width: 160px; }
+.af-dropdown-item { display: block; width: 100%; padding: 10px 16px; font-size: 13px; text-align: left; background: none; border: none; cursor: pointer; color: var(--text-main); }
+.af-dropdown-item:hover { background: var(--bg-alt); color: var(--primary); }
+
+/* --- Tab System --- */
+.af-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 5px; padding: 0 20px; background: var(--bg-alt); } .af-tab-btn { padding: 10px 16px; font-size: 13px; font-weight: 600; color: var(--text-muted); background: transparent; border: none; border-bottom: 2px solid transparent; cursor: pointer; transition: all 0.2s; }
+.af-tab-btn:hover { color: var(--text-main); }
+.af-tab-btn.active { color: var(--primary); border-bottom-color: var(--primary); }
+.af-tab-content { display: none; }
+.af-tab-content.active { display: block; }
+
+.af-alert { display: flex; align-items: center; gap: 12px; padding: 12px 20px; border-radius: var(--radius); margin-bottom: 20px; font-size: 14px; border: 1px solid transparent; }
+.af-alert-error { background-color: var(--danger-bg); border-color: #ffcdd2; color: var(--danger); } 
+.af-alert-info { background-color: #e3f2fd; border-color: #bbdefb; color: #1976d2; }

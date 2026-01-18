@@ -1,125 +1,104 @@
-# yaar
+# Yet Another Artifactory
 
-Very very simple artifact repository.
-Supports POSTing artifacs, directory listing, meta tags, locking, and simple triggers.
+A Go-based artifact server that serves and manages files from a real filesystem directory.  
+Built with a Go (Gin/GORM/SQLite) backend and a lightweight Vanilla JS SPA frontend.
 
-<!-- TOC depthfrom:2 -->
+## Key Features
 
-- [Directory listing](#directory-listing)
-    - [Ordering](#ordering)
-    - [Filtering](#filtering)
-- [Tags](#tags)
-- [Triggers](#triggers)
-- [Locks](#locks)
-- [Todo](#todo)
+- **Dual Authentication:** JWT-based login and hashed API Tokens.
+- **Scoped Permissions:** API Tokens can be restricted to specific directory prefixes (e.g., `/builds/ci/*`).
+- **Lifecycle Policies:**
+  - **TTL:** Automatic file expiry via `X-Expires` (supports durations like `7d` or `24h`).
+  - **KeepLatest:** Automatic rotation of stream groups; keeps only the most recent version.
+  - **Protected Paths:** Append-only directories defined in system configuration.
+- **Data Integrity:** Real-time calculation and verification of SHA256, SHA1, and MD5 checksums.
+- **Auto Sync:** Background reconciler syncs manual filesystem changes back to the database.
+- **Global Search:** Lookup by filename, path, tags, or stream identifiers.
+- **Audit Logging:** actions are recorded in a dedicated JSON audit trail.
 
-<!-- /TOC -->
+## API Endpoints
 
-## REST API
+### 1. File Access
 
-### Directory Tree Endpoint
+Standard HTTP verbs at the root level for high compatibility with tools like `curl`, `wget`, and `maven`.
 
-- **Method:** GET
-- **Base URL:** `/api/dirtree`
-- **Request:** `/api/dirtree/{path}`
-  - `{path}`: The path to the directory whose entries are to be fetched within the repository.
-- **Response:**
-    - **Content Type:** application/json
-    - **Status Codes:**
-        - `200 OK`: Successful retrieval of directory entries.
-        - `404 Not Found`: When the provided directory path does not exist.
+| Method   | Endpoint | Description                                                    |
+|:---------|:---------|:---------------------------------------------------------------|
+| `GET`    | `/*path` | Returns **Raw File** Supports `Range`.                         |
+| `HEAD`   | `/*path` | Returns metadata headers (Size, Checksums, Type).              |
+| `PUT`    | `/*path` | **Raw Stream Upload**. Creates/Overwrites file at target path. |
+| `DELETE` | `/*path` | **Physical Delete**. Removes file and associated DB metadata.  |
 
-#### Example
+**Headers (GET/HEAD):**
 
-Request:
-```sh
-curl http://localhost:8080/api/dirtree/path/to/dir
-```
+- `X-Checksum-Sha256`, `X-Checksum-Sha1`, `X-Checksum-Md5`
+- `ETag`: Contains the SHA256 hash.
 
-Response:
-```json
-[
-  {
-    "Name": "subdir",
-    "Size": 4096,
-    "ModTime": 1702505262,
-    "IsDir": true
-  },
-  {
-    "Name": "file1.txt",
-    "Size": 7,
-    "ModTime": 1703171845,
-    "IsDir": false
-  }
-]
-```
+### 2. Uploads & Automation
 
-## Javascript-based HTML client
+Supports both raw binary streams and standard multipart forms.
 
-**URL:** `/browser.html`
+| Method | Endpoint             | Description                                                     |
+|:-------|:---------------------|:----------------------------------------------------------------|
+| `PUT`  | `/*path`             | Raw binary body upload to specific path.                        |
+| `POST` | `/_/api/v1/fs/*path` | Multipart Form upload (`file` field). Directory taken from URL. |
 
-## Directory listing
+**Policy Headers:**
 
-### Ordering
+- `X-API-Token`: Required for non-browser automation.
+- `X-Stream`: Format `stream-name/group-id` (e.g. `frontend/v1.0.4`).
+- `X-Expires`: Duration (e.g. `30d`, `12h`) or ISO8601 date.
+- `X-KeepLatest`: `true` to mark previous groups in this stream as expired.
+- `X-Tags`: Comma/Semicolon separated list (e.g. `env=prod, arch=x64`).
+- `X-Checksum-Sha256`: Optional client-provided hash for inbound integrity verification.
 
-The column can be selected as
+### 3. Metadata & File Management
 
-- `c=m` by last-modified time
-- `c=n` by name
+Used primarily by the UI for management actions.
 
-Ordering direction can be selected as
+| Method  | Endpoint             | Description                                                                        |
+|:--------|:---------------------|:-----------------------------------------------------------------------------------|
+| `GET`   | `/_/api/v1/fs/*path` | Returns **JSON** listing (if dir) or **JSON** metadata (if file).                  |
+| `PATCH` | `/_/api/v1/fs/*path` | **Update Metadata**. Change tags, expiry, or immutability.                         |
+| `POST`  | `/_/api/v1/fs/*path` | **System Actions**. Body: `{"create": "directory"}` or `{"rename_to": "new.txt"}`. |
 
-- `o=d` desending
-- `o=a` ascending
+### 4. Streams & Discovery
 
-The query params are case sensitive.
+Query the logical hierarchy of your artifacts.
 
-Example to list by descending order of modification time
+| Method | Endpoint                  | Description                                                |
+|:-------|:--------------------------|:-----------------------------------------------------------|
+| `GET`  | `/_/api/v1/streams`       | Returns a list of all unique stream names.                 |
+| `GET`  | `/_/api/v1/streams/:name` | Returns all groups and nested files for a specific stream. |
 
-```sh
-curl localhost:8080/?c=m&o=d
-```
+### 5. Search & System
 
-### Filtering
+| Method | Endpoint                 | Description                                            |
+|:-------|:-------------------------|:-------------------------------------------------------|
+| `GET`  | `/_/api/v1/search?q=...` | Global search across paths, tags, and streams.         |
+| `GET`  | `/_/api/v1/settings`     | Returns version, build info, and active configuration. |
+| `POST` | `/_/api/v1/system/sync`  | Manually triggers a filesystem-to-database re-scan.    |
 
-Can filter by
+### 6. Administrative Management
 
-- `qn` - match name prefix
-- `qt` - existence or matching value of tag
-- `ql` - lock string existence
+| Method   | Endpoint                  | Description                                 |
+|:---------|:--------------------------|:--------------------------------------------|
+| `POST`   | `/_/api/login`            | Human login. Returns JWT.                   |
+| `GET`    | `/_/api/auth/me`          | Info on current user.                       |
+| `GET`    | `/_/api/admin/users`      | List all system users.                      |
+| `PATCH`  | `/_/api/admin/users/:id`  | Reset user password or change Admin status. |
+| `POST`   | `/_/api/admin/tokens`     | Generate a new scoped API Token.            |
+| `DELETE` | `/_/api/admin/tokens/:id` | Revoke an API Token.                        |
 
-```sh
-curl localhost:8080/?qt=tag
-curl localhost:8080/?qt=tag=abc
-curl localhost:8080/?ql=lockstr
-```
+## Configuration
 
-## Tags
+Priority: **Defaults < YAML < Env < CLI Flags**
 
-Assign meta data to items by adding `x-tag` headers.
-
-## Triggers
-
-Shell commands can be executed on item add and remove based on tags
-
-## Locks
-
-Items can have locks which prevents the item to be deleted. Currently only exclusive locks are available,
-which means that when a new item is added with the same lock the existing lock is removed and that item can be removed.
-
-```sh
-curl -X POST -H "x-lock: first-lock" --data-binary @test-file localhost:8080/filename -v
-```
-
-Locks can be removed by `meta` endpoint. eg. to remove all locks from `dir1/testfile`:
-
-```sh
-curl -X DELETE localhost:8080/meta/dir1/testfile/locks
-```
-
-## Todo
-
-- [ ] upload size limit
-- [ ] token auth
-- [ ] audit log
-- [ ] remove artifact
+| YAML Key                  | Env Var        | CLI Flag      | Default          |                                               |
+|:--------------------------|:---------------|:--------------|:-----------------|-----------------------------------------------|
+| `server.port`             | `AF_PORT`      | `--port`      | `8080`           |                                               |
+| `server.jwtsecret`        | `-`            | `-`           | ``               | Just some bytes (key) used for JWT generation |
+| `database.file`           | `AF_DB_FILE`   | `--db`        | `artifactory.db` |                                               |
+| `storage.base_dir`        | `AF_BASE_DIR`  | `--dir`       | `storage`        |                                               |
+| `storage.max_upload_size` | `AF_MAX_SIZE`  | `--max-size`  | `100MB`          |                                               |
+| `audit.file`              | `AF_AUDIT_LOG` | `--audit-log` | `audit.log`      |                                               |
