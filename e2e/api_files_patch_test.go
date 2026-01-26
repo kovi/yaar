@@ -15,7 +15,7 @@ import (
 
 func TestFilesystemOperations(t *testing.T) {
 
-	session := PrepareAuth(t, db, "developer", false, AuthH.Config.Server.JwtSecret)
+	session := PrepareAuth(t, db, "developer", false, nil, AuthH.Config.Server.JwtSecret)
 
 	t.Run("Create Directory", func(t *testing.T) {
 		payload := map[string]any{"create_dir": true}
@@ -34,22 +34,22 @@ func TestFilesystemOperations(t *testing.T) {
 
 	t.Run("Rename File and Update Meta", func(t *testing.T) {
 		// 1. Setup file and DB record
-		oldPath := "old-file.txt"
-		newPath := "new-file.txt"
-		os.WriteFile(filepath.Join(baseDir, oldPath), []byte("hello"), 0644)
+		oldPath := "renamedir/old-file.txt"
+		newPath := "renamedir/new-file.txt"
+		os.MkdirAll(filepath.Join(baseDir, "renamedir"), 0755)
+		assert.NoError(t, os.WriteFile(filepath.Join(baseDir, oldPath), []byte("hello"), 0644))
 		db.Create(&api.MetaResource{Path: "/" + oldPath})
 
-		// 2. Execute Rename
-		payload := map[string]string{"rename_to": newPath}
-		body, _ := json.Marshal(payload)
-		req, _ := http.NewRequest("POST", "/_/api/v1/fs/"+oldPath, bytes.NewBuffer(body))
-		req.Header.Set("Content-Type", "application/json")
-		session.Apply(req)
+		// test that cannot be moved to another directory
+		payload := map[string]string{"rename_to": "../new-file.txt"}
+		w := Perform(t, router, "POST", "/_/api/v1/fs/"+oldPath, WithJSON(payload), WithSession(session))
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+		assert.FileExists(t, filepath.Join(baseDir, oldPath))
+		assert.NoFileExists(t, filepath.Join(baseDir, "renamedir/../new-file.txt"))
 
-		w := httptest.NewRecorder()
-		router.ServeHTTP(w, req)
+		payload = map[string]string{"rename_to": "new-file.txt"}
+		w = Perform(t, router, "POST", "/_/api/v1/fs/"+oldPath, WithJSON(payload), WithSession(session))
 
-		// 3. Assertions
 		assert.Equal(t, http.StatusOK, w.Code)
 		assert.FileExists(t, filepath.Join(baseDir, newPath))
 		assert.NoFileExists(t, filepath.Join(baseDir, oldPath))
@@ -172,7 +172,7 @@ func TestPatchMeta_UnlockImmutable(t *testing.T) {
 		Immutable: &isTrue,
 	})
 
-	session := PrepareAuth(t, db, "devimmut", false, AuthH.Config.Server.JwtSecret)
+	session := PrepareAuth(t, db, "devimmut", false, nil, AuthH.Config.Server.JwtSecret)
 
 	t.Run("Reject tag update while still locked", func(t *testing.T) {
 		tags := "new=tag"

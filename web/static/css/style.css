@@ -604,23 +604,6 @@ body {
     /* Settings button never gets squished */
 }
 
-/* --- Search Dropdown Alignment Fix --- */
-.af-search-dropdown {
-    position: absolute;
-    top: calc(100% + 5px);
-    /* 5px gap below the input */
-    left: 0;
-    right: 0;
-    /* Fills EXACTLY the width of .af-navbar-search */
-    background: var(--bg-main);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
-    z-index: 1100;
-    max-height: 450px;
-    overflow-y: auto;
-}
-
 .af-navbar-brand {
     font-weight: 700;
     font-size: 18px;
@@ -874,11 +857,7 @@ body {
     cursor: help;
 }
 
-/* Compact Actions */
-.af-row-actions {
-    display: flex;
-    gap: 4px;
-}
+
 
 .af-section-label {
     display: block;
@@ -1012,101 +991,6 @@ body {
 
 .af-locate-btn svg {
     margin-right: 4px;
-}
-
-.af-search-dropdown {
-    position: absolute;
-    top: 100%;
-    left: 0;
-    right: 0;
-    background: var(--bg-main);
-    border: 1px solid var(--border);
-    border-radius: 0 0 var(--radius) var(--radius);
-    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
-    margin-top: 5px;
-    z-index: 1100;
-    max-height: 400px;
-    overflow-y: auto;
-}
-
-.af-search-item {
-    display: flex;
-    align-items: center;
-    padding: 10px 15px;
-    cursor: pointer;
-    border-bottom: 1px solid var(--bg-alt);
-}
-
-.af-search-item:hover {
-    background-color: #f0f7ff;
-}
-
-.af-search-icon {
-    font-size: 18px;
-    margin-right: 12px;
-    width: 24px;
-    text-align: center;
-}
-
-.af-search-name {
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--text-main);
-}
-
-.af-search-reason {
-    font-size: 11px;
-    color: var(--text-muted);
-}
-
-.af-search-empty {
-    padding: 20px;
-    text-align: center;
-    font-size: 13px;
-    color: var(--text-muted);
-}
-
-.af-search-content {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    overflow: hidden;
-}
-
-.af-search-top {
-    display: flex;
-    align-items: baseline;
-    gap: 10px;
-}
-
-.af-search-path {
-    font-size: 11px;
-    color: var(--text-muted);
-    font-family: ui-monospace, monospace;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.af-search-meta {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    flex-wrap: wrap;
-    margin-top: 2px;
-}
-
-/* Adjust badge sizes specifically for search dropdown */
-.af-search-meta .badge-origin,
-.af-search-meta .badge-tag {
-    font-size: 9px;
-    padding: 0px 4px;
-}
-
-.af-search-item {
-    padding: 12px 15px;
-    /* Slightly more padding for the two-line layout */
 }
 
 .btn-settings {

@@ -3,7 +3,8 @@ import { API } from '../api/ApiClient.js';
 import { Format } from '../api/Format.js';
 import { openFileInfo } from './FileInfo.js';
 import { openUploadDialog } from './UploadDialog.js';
-import * as ExpirationLabel from './ExpirationLabel.js'
+import { openMoveDialog } from './MoveDialog.js';
+import * as ExpirationLabel from './ExpirationLabel.js';
 
 const ICON_PARENT = `
 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -28,6 +29,7 @@ template.innerHTML = `
         <table class="af-table af-table-compact">
             <thead>
                 <tr>
+                    <th class="af-selection-column"></th>
                     <th class="sortable" data-sort="name">Name <span class="indicator"></span></th>
                     <th class="sortable" data-sort="size" style="width: 100px;">Size <span class="indicator"></span></th>
                     <th class="sortable" data-sort="modtime" style="width: 180px;">Modified <span class="indicator"></span></th>
@@ -45,9 +47,14 @@ template.innerHTML = `
 const rowTemplate = document.createElement('template');
 rowTemplate.innerHTML = `
     <tr class="af-file-row">
+        <td class="af-selection-column">
+            <div class="af-selection-wrapper">
+                <input type="checkbox" class="af-selection-checkbox af-no-select">
+            </div>
+        </td>  
         <td>
             <div class="af-file-wrapper">
-                <a class="nav-link af-file-link">
+                <a class="nav-link af-file-link af-no-select">
                     <span class="af-file-icon"></span>
                     <span class="af-file-text"></span>
                 </a>
@@ -60,11 +67,17 @@ rowTemplate.innerHTML = `
         </td>
         <td class="af-col-mono size-cell"></td>
         <td class="af-col-mono time-cell"></td>
-        <td>
-            <div class="af-row-actions">
-                <button class="btn btn-ghost info-btn" title="View Details">ℹ️</button>
-                <button class="btn btn-ghost edit-btn af-requires-auth" title="Edit">📝</button>
-                <button class="btn btn-ghost btn-danger del-btn af-requires-auth" title="Delete">🗑️</button>
+        <td class="af-row-actions" style="text-align: right;">
+            <div class="af-row-actions-container">
+                <button class="btn btn-ghost af-menu-trigger af-no-select" title="Actions">⋮</button>
+                
+                <div class="af-dropdown hidden af-row-dropdown">
+                    <button class="af-dropdown-item info-btn">ℹ️ Details</button>
+                    <button class="af-dropdown-item move-btn">📦 Move</button>
+                    <button class="af-dropdown-item edit-btn">📝 Edit Meta</button>
+                    <div class="af-dropdown-divider af-requires-auth"></div>
+                    <button class="af-dropdown-item btn-danger del-btn af-requires-auth">🗑️ Delete</button>
+                </div>
             </div>
         </td>
     </tr>
@@ -110,6 +123,12 @@ editModalTemplate.innerHTML = `
 `;
 
 let originalMeta;
+let isSelectionMode = false;
+let selectedPaths = new Set();
+let pressTimer;
+let preventClick = false;
+
+
 function openEditModal(file, path) {
     const dialog = document.getElementById('edit-meta-dialog');
     const form = dialog.querySelector('form');
@@ -243,7 +262,56 @@ function updateSearchParams(col, nextOrder) {
     window.history.replaceState({}, '', newUrl);
 }
 
+function enterSelectionMode(table) {
+    isSelectionMode = true;
+    table.classList.add('af-table-selection-mode');
+}
+
+function exitSelectionMode() {
+    isSelectionMode = false;
+    selectedPaths.clear();
+    document.querySelector('.af-table')?.classList.remove('af-table-selection-mode');
+    document.querySelectorAll('.af-file-row').forEach(r => r.classList.remove('is-selected'));
+    document.querySelectorAll('.af-selection-checkbox').forEach(cb => cb.checked = false);
+    updateBatchBar();
+}
+
+function updateBatchBar() {
+    let bar = document.getElementById('batch-bar');
+    if (!bar) {
+        bar = document.createElement('div');
+        bar.id = 'batch-bar';
+        bar.className = 'af-batch-bar hidden';
+        bar.innerHTML = `
+            <span class="af-batch-count">0 selected</span>
+            <div style="display:flex; gap:8px">
+                <button class="btn btn-primary btn-sm" id="batch-download-btn">📥 Download ZIP</button>
+                <button class="btn btn-ghost btn-sm" id="batch-clear-btn" style="color:white">Cancel</button>
+            </div>
+        `;
+
+        document.body.appendChild(bar);
+
+        // Make exit accessible globally for the inline onclick
+        window.exitSelectionMode = exitSelectionMode;
+
+        bar.querySelector('#batch-download-btn').onclick = () => {
+            const params = Array.from(selectedPaths).map(p => `p=${encodeURIComponent(p)}`).join('&');
+            window.location.href = `/_/api/v1/batch?${params}`;
+        };
+        bar.querySelector('#batch-clear-btn').onclick = () => {
+            selectedPaths.clear();
+            window.exitSelectionMode();
+        };
+    }
+
+    const count = selectedPaths.size;
+    bar.querySelector('.af-batch-count').textContent = `${count} items selected`;
+    bar.classList.toggle('hidden', count === 0);
+}
+
 export async function FileBrowser(path) {
+
     const handleDelete = async (file) => {
         const fullPath = `${path}/${file.name}`.replace(/\/+/g, '/');
 
@@ -338,7 +406,6 @@ export async function FileBrowser(path) {
     const editDialog = getDialogNode("edit-meta-dialog", editModalTemplate);
     editDialog.querySelector("form").onsubmit = onEditSubmit;
 
-
     // Upload functionality
     const uploadBtn = content.querySelector('#upload-btn');
     uploadBtn.onclick = () => openUploadDialog(path);
@@ -371,7 +438,7 @@ export async function FileBrowser(path) {
         const icon = row.querySelector('.af-file-icon');
         const text = row.querySelector('.af-file-text');
 
-        tr.classList.add("af-back-row")
+        tr.classList.add("af-back-row", "af-no-select")
         icon.innerHTML = ICON_PARENT;
         const parent = path.substring(0, path.lastIndexOf("/", path.length - (path.endsWith('/') ? 2 : 1)) + 1)
         text.textContent = "..";
@@ -382,6 +449,12 @@ export async function FileBrowser(path) {
         row.querySelector(".af-row-actions").innerHTML = "";
 
         fragment.appendChild(row)
+    }
+
+    const table = content.querySelector('.af-table');
+    if (selectedPaths.size > 0) {
+        isSelectionMode = true;
+        table.classList.add('af-table-selection-mode');
     }
 
     files.forEach(file => {
@@ -396,7 +469,8 @@ export async function FileBrowser(path) {
 
         // Set Name and Link
         text.textContent = file.name;
-        link.href = (path + '/' + file.name).replace(/\/+/g, '/');
+        const fullPath = (path + '/' + encodeURIComponent(file.name)).replace(/\/+/g, '/');
+        link.href = fullPath;
         if (!file.isdir) {
             link.target = "_new";
             link.classList.remove("nav-link")
@@ -451,11 +525,35 @@ export async function FileBrowser(path) {
             }, 3000);
         }
 
-        // Automatically disable the Delete button in the row
-        const delBtn = row.querySelector('.del-btn');
-        delBtn.onclick = () => handleDelete(file);
+        // Actions
+        // Inside the file rendering loop
+        const menuTrigger = row.querySelector('.af-menu-trigger');
+        const dropdown = row.querySelector('.af-row-dropdown');
 
-        const policy = file.policy; // Passed from backend listing
+        menuTrigger.onclick = (e) => {
+            e.stopPropagation(); // Prevents clicking the row itself
+
+            // Close any other open menus first
+            document.querySelectorAll('.af-row-dropdown').forEach(d => {
+                if (d !== dropdown) d.classList.add('hidden');
+            });
+
+            dropdown.classList.toggle('hidden');
+
+            // Auto-close when clicking anywhere else
+            if (!dropdown.classList.contains('hidden')) {
+                document.addEventListener('click', () => dropdown.classList.add('hidden'), { once: true });
+            }
+        };
+
+        // Hook up the buttons inside the menu
+        row.querySelector('.info-btn').onclick = () => openFileInfo(file);
+        row.querySelector('.move-btn').onclick = () => openMoveDialog(file, path);
+        row.querySelector('.edit-btn').onclick = () => openEditModal(file, path);
+        row.querySelector('.del-btn').onclick = () => handleDelete(file.name);
+
+        // Policy indicator
+        const policy = file.policy;
         if (policy.is_immutable || policy.is_protected || !policy.is_allowed) {
             const dot = document.createElement('span');
             dot.className = 'af-policy-indicator';
@@ -473,14 +571,93 @@ export async function FileBrowser(path) {
             dot.title = "Restrictions active: " + reasons.join(", ");
             text.appendChild(dot);
 
-            if (delBtn) {
-                delBtn.disabled = true;
-                delBtn.title = "Delete disabled: " + reasons[0];
-            }
+            [row.querySelector('.del-btn'), row.querySelector('.move-btn')].forEach(btn => {
+                btn.disabled = true;
+                btn.title = "Delete disabled: " + reasons[0];
+            });
         }
 
-        row.querySelector('.info-btn').onclick = () => openFileInfo(file);
-        row.querySelector('.edit-btn').onclick = () => openEditModal(file, path);
+        // selection mode
+        {
+            const checkbox = row.querySelector('.af-selection-checkbox');
+            const rowEl = row.querySelector('.af-file-row');
+            const fullPath = (path + '/' + file.name).replace(/\/+/g, '/');
+
+            // If this specific file was already selected, restore its visual state
+            if (selectedPaths.has(fullPath)) {
+                checkbox.checked = true;
+                rowEl.classList.add('is-selected');
+            }
+
+            const toggleItem = (force) => {
+                const fullPath = (path + '/' + file.name).replace(/\/+/g, '/');
+                const newState = (force !== undefined) ? force : !checkbox.checked;
+                checkbox.checked = newState;
+
+                if (newState) {
+                    selectedPaths.add(fullPath);
+                    rowEl.classList.add('is-selected');
+                    if (!isSelectionMode) enterSelectionMode(table);
+                } else {
+                    selectedPaths.delete(fullPath);
+                    rowEl.classList.remove('is-selected');
+                }
+
+                // If user unchecks the last item, exit selection mode automatically
+                if (selectedPaths.size === 0 && isSelectionMode) {
+                    exitSelectionMode();
+                }
+
+                updateBatchBar();
+            };
+
+            rowEl.onclick = (e) => {
+                if (preventClick) {
+                    preventClick = false;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    return;
+                }
+
+                if (!isSelectionMode) return;
+
+                // 1. If the click was on/inside an ignored element, let it be
+                if (e.target.closest('.af-no-select')) {
+                    return;
+                }
+
+                // 2. Otherwise, intercept the click
+                e.preventDefault();  // Stop the <a> from navigating
+                e.stopPropagation(); // Stop the global SPA listener in app.js
+
+                toggleItem();
+            };
+
+            // 1. Long Press Detection
+            rowEl.onmousedown = (e) => {
+                if (isSelectionMode || e.button !== 0) return;
+                preventClick = false
+                pressTimer = setTimeout(() => {
+                    toggleItem(true)
+                    preventClick = true;
+                }, 600);
+            };
+
+            rowEl.onmouseup = () => clearTimeout(pressTimer);
+            rowEl.onmouseleave = () => clearTimeout(pressTimer);
+
+            // 2. Mobile Touch Support
+            rowEl.ontouchstart = () => {
+                pressTimer = setTimeout(() => toggleItem(true), 600);
+            };
+            rowEl.ontouchend = () => clearTimeout(pressTimer);
+
+            // 3. Direct Checkbox Click
+            checkbox.onclick = (e) => {
+                e.stopPropagation();
+                toggleItem(checkbox.checked);
+            };
+        }
 
         fragment.appendChild(row);
     });
@@ -501,27 +678,16 @@ function renderBreadcrumbs(path) {
     let cumulativePath = '';
     segments.forEach((segment, index) => {
         cumulativePath += `/${segment}`;
+        const displayText = decodeURIComponent(segment);
         const isLast = index === segments.length - 1;
         if (isLast) {
-            html += `<div class="af-breadcrumb-item"><span class="af-breadcrumb-current">${segment}</span></div>`;
+            html += `<div class="af-breadcrumb-item"><span class="af-breadcrumb-current">${displayText}</span></div>`;
         } else {
             html += `
                 <div class="af-breadcrumb-item">
-                    <a href="${cumulativePath}" class="af-breadcrumb-link nav-link">${segment}</a>
+                    <a href="${cumulativePath}" class="af-breadcrumb-link nav-link">${displayText}</a>
                 </div>`;
         }
     });
     return html;
-}
-
-function calculateTimeRemaining(expiryStr) {
-    const expiry = new Date(expiryStr);
-    const now = new Date();
-    const diff = expiry - now;
-    if (diff < 0) return "Expired";
-
-    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-    if (days > 0) return `${days}d`;
-    const hours = Math.floor(diff / (1000 * 60 * 60));
-    return `${hours}h`;
 }

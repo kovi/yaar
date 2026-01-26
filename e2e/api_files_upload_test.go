@@ -18,6 +18,7 @@ import (
 
 	"github.com/kovi/yaar/internal/api"
 	"github.com/kovi/yaar/internal/config"
+	"github.com/kovi/yaar/internal/models"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -33,7 +34,7 @@ func TestFileUploads(t *testing.T) {
 	}
 	expectedMD5, expectedSHA1, expectedSHA256 := calcHashes(testContent)
 
-	session := PrepareAuth(t, db, "uploader1", false, AuthH.Config.Server.JwtSecret)
+	session := PrepareAuth(t, db, "uploader1", false, nil, AuthH.Config.Server.JwtSecret)
 
 	t.Run("Raw Binary Upload (PUT)", func(t *testing.T) {
 		targetURL := "/raw/test-file.txt"
@@ -150,7 +151,7 @@ func TestFileUploads(t *testing.T) {
 }
 
 func TestUploadAndVerifyMetadataChecksums(t *testing.T) {
-	session := PrepareAuth(t, db, "uploader2", false, AuthH.Config.Server.JwtSecret)
+	session := PrepareAuth(t, db, "uploader2", false, nil, AuthH.Config.Server.JwtSecret)
 
 	content := []byte("integrity-check-2025")
 
@@ -208,7 +209,7 @@ func TestUploadAndVerifyMetadataChecksums(t *testing.T) {
 }
 
 func TestUploadWithIntegrityCheck(t *testing.T) {
-	session := PrepareAuth(t, db, "uploader3", false, AuthH.Config.Server.JwtSecret)
+	session := PrepareAuth(t, db, "uploader3", false, nil, AuthH.Config.Server.JwtSecret)
 	content := []byte("hello integrity")
 	wrongSha256 := "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
 
@@ -250,7 +251,7 @@ func TestUploadWithIntegrityCheck(t *testing.T) {
 
 func TestMaxUploadSize(t *testing.T) {
 	WithConfig(t, func(c *config.Config) { c.Storage.MaxUploadSize = "10B" })
-	session := PrepareAuth(t, db, "uploader4", false, AuthH.Config.Server.JwtSecret)
+	session := PrepareAuth(t, db, "uploader4", false, nil, AuthH.Config.Server.JwtSecret)
 
 	t.Run("Reject file with bigger body and incosistent Content-Length", func(t *testing.T) {
 		largeData := make([]byte, 100)
@@ -288,7 +289,7 @@ func TestMaxUploadSize(t *testing.T) {
 }
 
 func TestUploadWithTags(t *testing.T) {
-	session := PrepareAuth(t, db, "uploader5", false, AuthH.Config.Server.JwtSecret)
+	session := PrepareAuth(t, db, "uploader5", false, nil, AuthH.Config.Server.JwtSecret)
 
 	t.Run("Upload with multiple tags via header", func(t *testing.T) {
 		target := "/tags-test.bin"
@@ -345,12 +346,12 @@ func TestTokenUploadAndProtection(t *testing.T) {
 	WithConfig(t, func(c *config.Config) {
 		c.Storage.ProtectedPaths = []string{"/stable"}
 	})
-	admin := PrepareAuth(t, db, "admintokenupload", true, AuthH.Config.Server.JwtSecret)
+	admin := PrepareAuth(t, db, "admintokenupload", true, nil, AuthH.Config.Server.JwtSecret)
 
 	tokenPayload := map[string]any{
-		"user_id":    admin.User.ID,
-		"name":       "CI-Bot",
-		"path_scope": "/", // Full scope for this test
+		"user_id":       admin.User.ID,
+		"name":          "CI-Bot",
+		"allowed_paths": models.StringList{"/"}, // Full scope for this test
 	}
 
 	resp := Perform(t, router, "POST", "/_/api/admin/tokens", WithJSON(tokenPayload), WithSession(admin))

@@ -16,32 +16,40 @@ import (
 )
 
 func TestAuthAndUserManagement(t *testing.T) {
-	session := PrepareAuth(t, db, "adminer", true, AuthH.Config.Server.JwtSecret)
-	worker := PrepareAuth(t, db, "worker", false, AuthH.Config.Server.JwtSecret)
+	session := PrepareAuth(t, db, "adminer", true, nil, AuthH.Config.Server.JwtSecret)
+	worker := PrepareAuth(t, db, "worker", false, nil, AuthH.Config.Server.JwtSecret)
 
 	t.Run("Successful Login returns JWT", func(t *testing.T) {
 		body := map[string]string{"username": session.User.Username, "password": session.PlainPassword}
-		jsonBody, _ := json.Marshal(body)
-
-		req, _ := http.NewRequest("POST", "/_/api/login", bytes.NewBuffer(jsonBody))
-		w := httptest.NewRecorder()
-		router.ServeHTTP(w, req)
-
+		w := Perform(t, router, "POST", "/_/api/login", WithJSON(body))
 		assert.Equal(t, 200, w.Code)
 		var resp map[string]any
 		json.Unmarshal(w.Body.Bytes(), &resp)
 
 		assert.NotNil(t, resp["token"])
+		assert.NotEmpty(t, resp["token"])
+	})
+
+	t.Run("User with two directory in access list", func(t *testing.T) {
+		auth := PrepareAuth(t, db, "u-multi-access", false, &models.StringList{"/abc", "/abc2/xyz"}, AuthH.Config.Server.JwtSecret)
+
+		w := Perform(t, router, "POST", "/abc/def/hijk", WithBody([]byte("asde")), WithSession((auth)))
+		assert.Equal(t, 201, w.Code)
+		w = Perform(t, router, "POST", "/abc/afile", WithBody([]byte("asde")), WithSession((auth)))
+		assert.Equal(t, 201, w.Code)
+		w = Perform(t, router, "POST", "/abc2/xyz/afile", WithBody([]byte("asde")), WithSession((auth)))
+		assert.Equal(t, 201, w.Code)
+		w = Perform(t, router, "POST", "/notok/afile", WithBody([]byte("asde")), WithSession((auth)))
+		assert.Equal(t, 403, w.Code)
+		w = Perform(t, router, "POST", "/afile", WithBody([]byte("asde")), WithSession((auth)))
+		assert.Equal(t, 403, w.Code)
+		w = Perform(t, router, "POST", "/some/thing/deep/inside", WithBody([]byte("asde")), WithSession((auth)))
+		assert.Equal(t, 403, w.Code)
 	})
 
 	t.Run("Failed Login with wrong password", func(t *testing.T) {
 		body := map[string]string{"username": "boss", "password": "wrong-password"}
-		jsonBody, _ := json.Marshal(body)
-
-		req, _ := http.NewRequest("POST", "/_/api/login", bytes.NewBuffer(jsonBody))
-		w := httptest.NewRecorder()
-		router.ServeHTTP(w, req)
-
+		w := Perform(t, router, "POST", "/_/api/login", WithJSON(body))
 		assert.Equal(t, 401, w.Code)
 	})
 
@@ -84,25 +92,16 @@ func TestAuthAndUserManagement(t *testing.T) {
 		var worker models.User
 		db.Where("username = ?", "workerx").First(&worker)
 		assert.Equal(t, "workerx", worker.Username)
+		assert.Equal(t, models.StringList{}, worker.AllowedPaths)
 	})
 
 	t.Run("Non-Admin cannot list users", func(t *testing.T) {
-		req, _ := http.NewRequest("GET", "/_/api/admin/users", nil)
-		worker.Apply(req)
-
-		w := httptest.NewRecorder()
-		router.ServeHTTP(w, req)
-
-		// Assert 403 Forbidden
+		w := Perform(t, router, "GET", "/_/api/admin/users", WithSession(worker))
 		assert.Equal(t, 403, w.Code)
 	})
 
 	t.Run("Admin cannot delete themselves", func(t *testing.T) {
-		req, _ := http.NewRequest("DELETE", fmt.Sprintf("/_/api/admin/users/%v", session.User.ID), nil)
-		session.Apply(req)
-
-		w := httptest.NewRecorder()
-		router.ServeHTTP(w, req)
+		w := Perform(t, router, "DELETE", fmt.Sprintf("/_/api/admin/users/%v", session.User.ID), WithSession(session))
 
 		assert.Equal(t, 403, w.Code)
 
@@ -121,20 +120,27 @@ func TestAuthAndUserManagement(t *testing.T) {
 		// 2. Perform reset
 		newPass := "shiny-new-password"
 		body := map[string]any{"password": newPass}
-		jsonBody, _ := json.Marshal(body)
 
-		req, _ := http.NewRequest("PATCH", fmt.Sprintf("/_/api/admin/users/%d", victim.ID), bytes.NewBuffer(jsonBody))
-		session.Apply(req)
-
-		w := httptest.NewRecorder()
-		router.ServeHTTP(w, req)
-
+		w := Perform(t, router, "PATCH", fmt.Sprintf("/_/api/admin/users/%d", victim.ID), WithJSON(body), WithSession(session))
 		assert.Equal(t, 200, w.Code)
 
 		// 3. Verify login with NEW password
-		db.First(&victim, victim.ID)
-		assert.True(t, victim.CheckPassword(newPass))
-		assert.False(t, victim.CheckPassword("old-pass"))
+		body = map[string]any{"username": session.User.Username, "password": session.PlainPassword}
+		w = Perform(t, router, "POST", "/_/api/login", WithJSON(body))
+		assert.Equal(t, 200, w.Code)
+	})
+
+	t.Run("Admin can update a user", func(t *testing.T) {
+		victim := models.User{Username: "forgetful2"}
+		victim.SetPassword("old-pass")
+		db.Create(&victim)
+
+		body := map[string]any{"allowed_paths": models.StringList{"/a", "/b"}}
+		w := Perform(t, router, "PATCH", fmt.Sprintf("/_/api/admin/users/%d", victim.ID), WithJSON(body), WithSession(session))
+		assert.Equal(t, 200, w.Code)
+
+		db.Where("username = ?", victim.Username).First(&victim)
+		assert.Equal(t, models.StringList{"/a", "/b"}, victim.AllowedPaths)
 	})
 }
 
@@ -155,7 +161,7 @@ func TestUserCacheIntegration(t *testing.T) {
 		assert.Equal(t, 200, w.Code)
 
 		// Verify item is now in cache
-		exists, _, found := AuthH.UserCache.Get(user.ID)
+		exists, found, _ := AuthH.UserCache.Get(user.ID)
 		assert.True(t, found)
 		assert.True(t, exists)
 	})
@@ -187,7 +193,7 @@ func TestUserCacheIntegration(t *testing.T) {
 		assert.Equal(t, 401, w.Code, "Should fail after cache invalidation")
 
 		// Verify cache now stores the 'false' (non-existent) state to prevent DB spamming
-		exists, _, found := AuthH.UserCache.Get(user.ID)
+		exists, found, _ := AuthH.UserCache.Get(user.ID)
 		assert.True(t, found)
 		assert.False(t, exists)
 	})

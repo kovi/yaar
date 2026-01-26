@@ -42,6 +42,7 @@
 .af-dropdown { position: absolute; background: var(--bg-main); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); z-index: 1000; padding: 6px 0; min-width: 160px; }
 .af-dropdown-item { display: block; width: 100%; padding: 10px 16px; font-size: 13px; text-align: left; background: none; border: none; cursor: pointer; color: var(--text-main); }
 .af-dropdown-item:hover { background: var(--bg-alt); color: var(--primary); }
+.af-dropdown-item:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* --- Tab System --- */
 .af-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 5px; padding: 0 20px; background: var(--bg-alt); } .af-tab-btn { padding: 10px 16px; font-size: 13px; font-weight: 600; color: var(--text-muted); background: transparent; border: none; border-bottom: 2px solid transparent; cursor: pointer; transition: all 0.2s; }
@@ -53,3 +54,33 @@
 .af-alert { display: flex; align-items: center; gap: 12px; padding: 12px 20px; border-radius: var(--radius); margin-bottom: 20px; font-size: 14px; border: 1px solid transparent; }
 .af-alert-error { background-color: var(--danger-bg); border-color: #ffcdd2; color: var(--danger); } 
 .af-alert-info { background-color: #e3f2fd; border-color: #bbdefb; color: #1976d2; }
+
+.af-input-with-action { display: flex; gap: 0; }
+.af-input-with-action input { border-top-right-radius: 0; border-bottom-right-radius: 0; border-right: none; }
+.af-input-with-action .btn { border-top-left-radius: 0; border-bottom-left-radius: 0; border: 1px solid var(--border); background: var(--bg-alt); }
+
+/* Container for the menu trigger and the dropdown */
+.af-row-actions-container {
+    position: relative;
+    display: inline-block;
+}
+
+/* Ensure the table doesn't hide the dropdown */
+.af-table-wrapper {
+    overflow: visible !important; /* Allow menus to float outside the table boundary */
+}
+
+/* Specific styling for the row dropdown positioning */
+.af-row-dropdown {
+    right: 0;
+    top: 100%;
+    margin-top: 4px;
+    min-width: 140px;
+}
+
+/* Divider inside the menu */
+.af-dropdown-divider {
+    height: 1px;
+    background-color: var(--border);
+    margin: 4px 0;
+}

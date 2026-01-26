@@ -16,7 +16,7 @@ import (
 )
 
 func TestPatchMeta(t *testing.T) {
-	session := PrepareAuth(t, db, "metapatcher1", false, AuthH.Config.Server.JwtSecret)
+	session := PrepareAuth(t, db, "metapatcher1", false, nil, AuthH.Config.Server.JwtSecret)
 
 	t.Run("404 when physical file is missing", func(t *testing.T) {
 		targetPath := "/ghost-file.txt"

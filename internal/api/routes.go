@@ -21,6 +21,7 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 	}
 	api.GET("/search", h.Search)
 	api.GET("/settings", h.GetSettings)
+	api.GET("/batch", h.HandleBatchDownload)
 
 	// --- stream routes ---
 	stream := api.Group("/streams")

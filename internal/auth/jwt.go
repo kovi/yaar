@@ -9,18 +9,20 @@ import (
 )
 
 type Claims struct {
-	UserID   uint   `json:"user_id"`
-	Username string `json:"username"`
-	IsAdmin  bool   `json:"is_admin"`
+	UserID       uint              `json:"user_id"`
+	Username     string            `json:"username"`
+	IsAdmin      bool              `json:"is_admin"`
+	AllowedPaths models.StringList `json:"allowed_paths"`
 	jwt.RegisteredClaims
 }
 
 // GenerateToken creates a new JWT for a user that expires in 24 hours
 func GenerateToken(user models.User, secret string) (string, error) {
 	claims := &Claims{
-		UserID:   user.ID,
-		Username: user.Username,
-		IsAdmin:  user.IsAdmin,
+		UserID:       user.ID,
+		Username:     user.Username,
+		IsAdmin:      user.IsAdmin,
+		AllowedPaths: user.AllowedPaths,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),

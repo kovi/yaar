@@ -23,12 +23,17 @@ type TestSession struct {
 }
 
 // PrepareAuth creates a user in the DB and returns a session with a valid JWT
-func PrepareAuth(t *testing.T, db *gorm.DB, username string, isAdmin bool, secret string) *TestSession {
+func PrepareAuth(t *testing.T, db *gorm.DB, username string, isAdmin bool, allowedPaths *models.StringList, secret string) *TestSession {
 	t.Helper()
 
+	if allowedPaths == nil {
+		allowedPaths = &models.StringList{"/"}
+	}
+
 	user := models.User{
-		Username: username,
-		IsAdmin:  isAdmin,
+		Username:     username,
+		IsAdmin:      isAdmin,
+		AllowedPaths: *allowedPaths,
 	}
 	// We use a fixed password for all test users to keep it simple
 	pw := "test-password-123"

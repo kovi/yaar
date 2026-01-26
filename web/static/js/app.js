@@ -89,6 +89,7 @@ async function router() {
         const view = await FileBrowser(path);
         renderView(view);
     } catch (err) {
+        console.error(err)
         if (err.status === 404) {
             renderView(NotFoundView(path));
         } else {

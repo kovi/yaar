@@ -8,9 +8,10 @@ import (
 )
 
 type cachedUser struct {
-	exists    bool
-	isAdmin   bool
-	expiresAt time.Time
+	exists       bool
+	isAdmin      bool
+	allowedPaths []string
+	expiresAt    time.Time
 }
 
 type UserCache struct {
@@ -24,25 +25,26 @@ func NewUserCache() *UserCache {
 	}
 }
 
-func (c *UserCache) Get(userID uint) (exists bool, isAdmin bool, found bool) {
+func (c *UserCache) Get(userID uint) (exists bool, found bool, entry cachedUser) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
 	item, ok := c.store[userID]
 	if !ok || time.Now().After(item.expiresAt) {
-		return false, false, false
+		return false, false, cachedUser{}
 	}
-	return item.exists, item.isAdmin, true
+	return item.exists, true, item
 }
 
-func (c *UserCache) Set(userID uint, exists bool, isAdmin bool, ttl time.Duration) {
+func (c *UserCache) Set(userID uint, exists bool, isAdmin bool, allowedPaths []string, ttl time.Duration) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	c.store[userID] = cachedUser{
-		exists:    exists,
-		isAdmin:   isAdmin,
-		expiresAt: time.Now().Add(ttl),
+		exists:       exists,
+		isAdmin:      isAdmin,
+		expiresAt:    time.Now().Add(ttl),
+		allowedPaths: allowedPaths,
 	}
 }
 

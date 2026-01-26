@@ -2,7 +2,7 @@ package e2e
 
 import (
 	"net/http"
-	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
@@ -29,9 +29,7 @@ func TestFileRetrieval(t *testing.T) {
 	})
 
 	t.Run("Standard GET request", func(t *testing.T) {
-		req, _ := http.NewRequest("GET", urlPath, nil)
-		w := httptest.NewRecorder()
-		router.ServeHTTP(w, req)
+		w := Perform(t, router, "GET", urlPath)
 
 		assert.Equal(t, http.StatusOK, w.Code)
 		assert.Equal(t, "application/octet-stream", w.Header().Get("Content-Type"))
@@ -47,11 +45,7 @@ func TestFileRetrieval(t *testing.T) {
 	})
 
 	t.Run("GET request with Range header", func(t *testing.T) {
-		req, _ := http.NewRequest("GET", urlPath, nil)
-		req.Header.Set("Range", "bytes=10-13")
-
-		w := httptest.NewRecorder()
-		router.ServeHTTP(w, req)
+		w := Perform(t, router, "GET", urlPath, WithHeader("Range", "bytes=10-13"))
 
 		// 206 Partial Content is expected
 		assert.Equal(t, http.StatusPartialContent, w.Code)
@@ -61,9 +55,7 @@ func TestFileRetrieval(t *testing.T) {
 	})
 
 	t.Run("HEAD request", func(t *testing.T) {
-		req, _ := http.NewRequest("HEAD", urlPath, nil)
-		w := httptest.NewRecorder()
-		router.ServeHTTP(w, req)
+		w := Perform(t, router, "HEAD", urlPath)
 
 		assert.Equal(t, http.StatusOK, w.Code)
 
@@ -74,5 +66,16 @@ func TestFileRetrieval(t *testing.T) {
 
 		// CRITICAL: HEAD must have an EMPTY body
 		assert.Equal(t, 0, w.Body.Len())
+	})
+
+	t.Run("GET with special characters", func(t *testing.T) {
+		fname := "/ab%20cd/file%20name.log"
+		assert.NoError(t, os.MkdirAll(filepath.Join(baseDir, filepath.Dir(fname)), 0777))
+		assert.NoError(t, os.WriteFile(filepath.Join(baseDir, fname), []byte("abdefe"), 0644))
+
+		w := Perform(t, router, "GET", url.PathEscape(fname))
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Equal(t, []byte("abdefe"), w.Body.Bytes())
 	})
 }

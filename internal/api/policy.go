@@ -13,23 +13,33 @@ type ModifyOptions struct {
 }
 
 // CanModify checks if a path is eligible for changes based on config and DB policy.
-func (h *Handler) CanModify(urlPath string, allowedScopes []string, opts ModifyOptions) (bool, string) {
+func (h *Handler) CanModify(urlPath string, allowedPaths []string, opts ModifyOptions) (bool, string) {
 	urlPath = filepath.Clean("/" + urlPath)
 
 	// 1. SCOPE CHECK: Is the path within one of the allowed scopes?
-	inScope := false
-	if len(allowedScopes) == 0 || (len(allowedScopes) == 1 && allowedScopes[0] == "/") {
-		inScope = true
-	} else {
-		for _, scope := range allowedScopes {
+	if len(allowedPaths) == 0 {
+		return false, "Your account has no write permissions configured."
+	}
+
+	hasRootAccess := false
+	for _, p := range allowedPaths {
+		if p == "/" {
+			hasRootAccess = true
+			break
+		}
+	}
+
+	if !hasRootAccess {
+		inScope := false
+		for _, scope := range allowedPaths {
 			if auth.IsInScope(urlPath, scope) {
 				inScope = true
 				break
 			}
 		}
-	}
-	if !inScope {
-		return false, "Path is outside of your authorized scope."
+		if !inScope {
+			return false, "Path is outside of your authorized scopes."
+		}
 	}
 
 	// 2. PARENT WALK: Check if any parent (or the file itself) is Protected or Immutable

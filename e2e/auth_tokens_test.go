@@ -15,25 +15,20 @@ import (
 )
 
 func TestTokenManagementAndScoping(t *testing.T) {
-	adminSession := PrepareAuth(t, db, "token-admin", true, AuthH.Config.Server.JwtSecret)
+	adminSession := PrepareAuth(t, db, "token-admin", true, nil, AuthH.Config.Server.JwtSecret)
 
 	var plainToken string
 	var tokenId uint
 
 	t.Run("Step 1: Admin Creates a Scoped Token", func(t *testing.T) {
 		payload := map[string]any{
-			"user_id":    adminSession.User.ID,
-			"name":       "CI-Builder",
-			"path_scope": "/ci-artifacts",
+			"user_id":       adminSession.User.ID,
+			"name":          "CI-Builder",
+			"allowed_paths": []string{"/ci-artifacts"},
 		}
-		body, _ := json.Marshal(payload)
+		w := Perform(t, router, "POST", "/_/api/admin/tokens", WithJSON(payload), WithSession(adminSession))
 
-		req, _ := http.NewRequest("POST", "/_/api/admin/tokens", bytes.NewBuffer(body))
-		adminSession.Apply(req) // Use Admin JWT
-		w := httptest.NewRecorder()
-		router.ServeHTTP(w, req)
-
-		assert.Equal(t, 201, w.Code)
+		assert.Equal(t, 201, w.Code, w.Body.String())
 
 		var resp map[string]any
 		json.Unmarshal(w.Body.Bytes(), &resp)
@@ -58,20 +53,11 @@ func TestTokenManagementAndScoping(t *testing.T) {
 
 	t.Run("Step 3: Use Token outside Allowed Scope (Delete)", func(t *testing.T) {
 		path := "/production/app.exe"
-		req, _ := http.NewRequest("PUT", path, bytes.NewBuffer([]byte("data")))
-		adminSession.Apply(req)
-		w := httptest.NewRecorder()
-		router.ServeHTTP(w, req)
+		w := Perform(t, router, "PUT", path, WithBody([]byte("data")), WithSession(adminSession))
 		assert.Equal(t, 200, w.Code)
 
-		// Attempt to delete a file in /production
-		req, _ = http.NewRequest("DELETE", path, nil)
-		req.Header.Set("X-API-Token", plainToken)
+		w = Perform(t, router, "DELETE", path, WithHeader("X-API-Token", plainToken))
 
-		w = httptest.NewRecorder()
-		router.ServeHTTP(w, req)
-
-		// Should be blocked by EnforceScope middleware
 		assert.Equal(t, 403, w.Code)
 	})
 

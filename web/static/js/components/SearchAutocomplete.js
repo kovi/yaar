@@ -1,4 +1,5 @@
 import { API } from '../api/ApiClient.js';
+import { Path } from '../api/Path.js';
 
 let debounceTimer;
 
@@ -44,7 +45,7 @@ function renderResults(results, dropdown) {
         dropdown.innerHTML = `<div class="af-search-empty">No results found</div>`;
     } else {
         dropdown.innerHTML = results.map(r => `
-            <div class="af-search-item" data-path="${r.path}" data-type="${r.type}">
+            <div class="af-search-item" data-path="${Path.toUrl(r.path)}" data-type="${r.type}">
                 <div class="af-search-icon">${getIcon(r.type)}</div>
                 <div class="af-search-content">
                     <div class="af-search-top">

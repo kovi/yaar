@@ -68,7 +68,7 @@ func (h *Handler) HandleUpload(c *gin.Context) {
 	method := c.Request.Method
 	contentType := c.ContentType()
 	log := logger(c).WithField("path", urlPath)
-	scopes := c.GetStringSlice("allowed_paths")
+	allowed_paths := c.GetStringSlice("allowed_paths")
 
 	if c.Request.ContentLength > h.Config.Storage.MaxUploadSizeBytes {
 		h.Audit.WithContext(c).Failure(audit.ActionUpload, urlPath, errors.New("file too large"), "MaxUploadSizeBytes", h.Config.Storage.MaxUploadSizeBytes)
@@ -120,7 +120,7 @@ func (h *Handler) HandleUpload(c *gin.Context) {
 		IsUpload:        true,
 	}
 
-	if ok, msg := h.CanModify(finalRelativePath, scopes, opts); !ok {
+	if ok, msg := h.CanModify(finalRelativePath, allowed_paths, opts); !ok {
 		h.Audit.WithContext(c).Failure(audit.ActionUpload, finalRelativePath, fmt.Errorf(msg))
 		c.JSON(403, gin.H{"error": msg})
 		return
@@ -296,8 +296,8 @@ func (h *Handler) DeleteEntry(c *gin.Context) {
 		return
 	}
 
-	scopes := c.GetStringSlice("allowed_paths")
-	if ok, msg := h.CanModify(path, scopes, ModifyOptions{}); !ok {
+	allowed_paths := c.GetStringSlice("allowed_paths")
+	if ok, msg := h.CanModify(path, allowed_paths, ModifyOptions{}); !ok {
 		h.Audit.WithContext(c).Failure(audit.ActionDelete, path, errors.New(msg))
 		c.JSON(403, gin.H{"error": msg})
 		return

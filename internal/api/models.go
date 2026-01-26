@@ -71,11 +71,11 @@ type MetaResource struct {
 }
 
 type MetaTag struct {
-	ID         uint `gorm:"primaryKey"`
-	ResourceID uint `gorm:"index"`
-	Resource   *MetaResource
-	Key        string `gorm:"size:255;index" json:"key"`
-	Value      string `gorm:"size:255" json:"value"`
+	ID         uint          `gorm:"primaryKey"`
+	ResourceID uint          `gorm:"index"`
+	Resource   *MetaResource `gorm:"foreignKey:ResourceID"`
+	Key        string        `gorm:"size:255;index" json:"key"`
+	Value      string        `gorm:"size:255" json:"value"`
 }
 
 type MetaPatchRequest struct {
@@ -85,24 +85,4 @@ type MetaPatchRequest struct {
 	Stream      *string `json:"stream"`
 	KeepLatest  *bool   `json:"keep_latest"`
 	ContentType *string `json:"contenttype"`
-}
-
-type User struct {
-	ID           uint    `gorm:"primaryKey"`
-	Username     string  `gorm:"uniqueIndex;not null"`
-	PasswordHash string  `gorm:"not null"`
-	IsAdmin      bool    `gorm:"default:false"`
-	Tokens       []Token `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE"`
-	CreatedAt    time.Time
-}
-
-type Token struct {
-	ID         uint   `gorm:"primaryKey"`
-	UserID     uint   `gorm:"index"`
-	Name       string `gorm:"not null"` // e.g. "Jenkins-Production"
-	SecretHash string `gorm:"uniqueIndex;not null"`
-	PathScope  string `gorm:"default:'/'"` // Restricted to this directory
-	LastUsedAt *time.Time
-	ExpiresAt  *time.Time
-	CreatedAt  time.Time
 }

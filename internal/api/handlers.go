@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -256,6 +257,7 @@ func (h *Handler) PostMeta(c *gin.Context) {
 	var req struct {
 		CreateDir bool   `json:"create_dir"`
 		RenameTo  string `json:"rename_to"`
+		MoveTo    string `json:"move_to"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -298,10 +300,17 @@ func (h *Handler) PostMeta(c *gin.Context) {
 			return
 		}
 
+		if filepath.Dir(fullOldPath) != filepath.Dir(fullNewPath) {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "rename cannot change directory",
+			})
+			return
+		}
+
 		// We already checked oldPath .
 		// Now we must check if the NEW path is also in scope.
 		if ok, msg := h.CanModify(newURLPath, scopes, ModifyOptions{}); !ok {
-			h.Audit.WithContext(c).Failure(audit.ActionDelete, newURLPath, errors.New(msg))
+			h.Audit.WithContext(c).Failure(audit.ActionRename, newURLPath, errors.New(msg))
 			c.JSON(403, gin.H{"error": msg})
 			return
 		}
@@ -348,5 +357,76 @@ func (h *Handler) PostMeta(c *gin.Context) {
 		return
 	}
 
+	if req.MoveTo != "" {
+		h.HandleMove(c, req.MoveTo)
+		return
+	}
+
 	c.JSON(400, gin.H{"error": "invalid action"})
+}
+
+func (h *Handler) HandleMove(c *gin.Context, moveTo string) {
+	oldURLPath := c.Param("path")
+	newURLPath := filepath.Clean("/" + moveTo)
+
+	fullOldPath := filepath.Join(h.BaseDir, filepath.Clean(oldURLPath))
+	fullNewPath := filepath.Join(h.BaseDir, filepath.Clean(newURLPath))
+
+	allowedPaths := c.GetStringSlice("allowed_paths")
+
+	// 1. SECURITY CHECK: Source
+	// User must be able to "Delete/Modify" the source
+	if ok, msg := h.CanModify(oldURLPath, allowedPaths, ModifyOptions{}); !ok {
+		c.JSON(403, gin.H{"error": "Source permission denied: " + msg})
+		return
+	}
+
+	// 2. SECURITY CHECK: Destination
+	// User must be able to "Create/Write" at the destination
+	if ok, msg := h.CanModify(newURLPath, allowedPaths, ModifyOptions{IgnoreProtected: true}); !ok {
+		c.JSON(403, gin.H{"error": "Destination permission denied: " + msg})
+		return
+	}
+
+	// 3. PREVENT CIRCULAR MOVE
+	// You cannot move a folder inside itself
+	if strings.HasPrefix(newURLPath, oldURLPath+"/") {
+		c.JSON(400, gin.H{"error": "Cannot move a directory into its own subdirectory"})
+		return
+	}
+
+	// 4. FILESYSTEM MOVE
+	// Ensure destination parent directory exists
+	if err := os.MkdirAll(filepath.Dir(fullNewPath), 0755); err != nil {
+		c.JSON(500, gin.H{"error": "Failed to create destination parent directory"})
+		return
+	}
+
+	if err := os.Rename(fullOldPath, fullNewPath); err != nil {
+		c.JSON(500, gin.H{"error": "Filesystem move failed: " + err.Error()})
+		return
+	}
+
+	// 5. RECURSIVE DATABASE UPDATE
+	err := h.DB.Transaction(func(tx *gorm.DB) error {
+		oldPrefix := oldURLPath
+		newPrefix := newURLPath
+		childMatch := oldPrefix + "/%"
+
+		// Update the path for the item and all its children (if it's a directory)
+		result := tx.Model(&MetaResource{}).
+			Where("path = ? OR path LIKE ?", oldPrefix, childMatch).
+			Update("path", gorm.Expr("REPLACE(path, ?, ?)", oldPrefix, newPrefix))
+
+		return result.Error
+	})
+
+	if err != nil {
+		h.Log.WithError(err).Error("Move: Database path update failed")
+		c.JSON(500, gin.H{"error": "Metadata sync failed"})
+		return
+	}
+
+	h.Audit.WithContext(c).Success("FILE_MOVE", oldURLPath, "to", newURLPath)
+	c.JSON(200, gin.H{"status": "moved", "from": oldURLPath, "to": newURLPath})
 }

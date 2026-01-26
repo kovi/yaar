@@ -54,32 +54,34 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 	// 2. Return token + basic user info for the UI
 	c.JSON(200, gin.H{
-		"token":    token,
-		"username": user.Username,
-		"is_admin": user.IsAdmin,
+		"token":         token,
+		"username":      user.Username,
+		"is_admin":      user.IsAdmin,
+		"allowed_paths": user.AllowedPaths,
 	})
 }
 
 // ListUsers handles GET /_/api/admin/users
 func (h *AuthHandler) ListUsers(c *gin.Context) {
 	var users []models.User
-	h.DB.Select("id", "username", "is_admin", "created_at").Find(&users)
+	h.DB.Select("id", "username", "is_admin", "created_at", "allowed_paths").Find(&users)
 	c.JSON(200, users)
 }
 
 // CreateUser handles POST /_/api/admin/users
 func (h *AuthHandler) CreateUser(c *gin.Context) {
 	var req struct {
-		Username string `json:"username" binding:"required"`
-		Password string `json:"password" binding:"required"`
-		IsAdmin  bool   `json:"is_admin"`
+		Username     string            `json:"username" binding:"required"`
+		Password     string            `json:"password" binding:"required"`
+		AllowedPaths models.StringList `json:"allowed_paths"`
+		IsAdmin      bool              `json:"is_admin"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
-	user := models.User{Username: req.Username, IsAdmin: req.IsAdmin}
+	user := models.User{Username: req.Username, IsAdmin: req.IsAdmin, AllowedPaths: req.AllowedPaths}
 	user.SetPassword(req.Password)
 
 	if err := h.DB.Create(&user).Error; err != nil {
@@ -107,8 +109,9 @@ func (h *AuthHandler) UpdateUser(c *gin.Context) {
 	currentUserID := c.MustGet("user_id").(uint)
 
 	var req struct {
-		Password *string `json:"password"`
-		IsAdmin  *bool   `json:"is_admin"`
+		Password     *string           `json:"password"`
+		IsAdmin      *bool             `json:"is_admin"`
+		AllowedPaths models.StringList `json:"allowed_paths"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -136,14 +139,16 @@ func (h *AuthHandler) UpdateUser(c *gin.Context) {
 			}
 		}
 
-		updates := make(map[string]interface{})
+		updates := make(map[string]any)
 		if req.IsAdmin != nil {
 			updates["is_admin"] = *req.IsAdmin
 		}
 		if req.Password != nil {
 			updates["password_hash"] = user.PasswordHash
 		}
-
+		if req.AllowedPaths != nil {
+			updates["allowed_paths"] = req.AllowedPaths
+		}
 		return tx.Model(&user).Updates(updates).Error
 	})
 
@@ -215,13 +220,15 @@ func (h *AuthHandler) DeleteUser(c *gin.Context) {
 // CreateToken handles POST /_/api/admin/tokens
 func (h *AuthHandler) CreateToken(c *gin.Context) {
 	var req struct {
-		UserID    uint   `json:"user_id" binding:"required"`
-		Name      string `json:"name" binding:"required"`
-		PathScope string `json:"path_scope"`
-		Expires   string `json:"expires"` // NEW
+		UserID       uint     `json:"user_id" binding:"required"`
+		Name         string   `json:"name" binding:"required"`
+		AllowedPaths []string `json:"allowed_paths"`
+		Expires      string   `json:"expires"`
 	}
 
-	if err := c.ShouldBindJSON(&req); err != nil { /* ... */
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
 	}
 
 	var expiresAt *time.Time
@@ -236,11 +243,11 @@ func (h *AuthHandler) CreateToken(c *gin.Context) {
 
 	plainToken, _ := GenerateRandomToken()
 	token := models.Token{
-		UserID:     req.UserID,
-		Name:       req.Name,
-		PathScope:  req.PathScope,
-		ExpiresAt:  expiresAt,
-		SecretHash: HashToken(plainToken),
+		UserID:       req.UserID,
+		Name:         req.Name,
+		AllowedPaths: req.AllowedPaths,
+		ExpiresAt:    expiresAt,
+		SecretHash:   HashToken(plainToken),
 	}
 
 	if err := h.DB.Create(&token).Error; err != nil {
@@ -253,15 +260,15 @@ func (h *AuthHandler) CreateToken(c *gin.Context) {
 		"TOKEN_CREATED",
 		token.Name,
 		"owner", token.User.Username,
-		"scope", token.PathScope,
+		"allowed_paths", token.AllowedPaths,
 	)
 
 	// IMPORTANT: We return the plainToken ONLY ONCE here.
 	c.JSON(201, gin.H{
-		"id":          token.ID,
-		"plain_token": plainToken,
-		"name":        token.Name,
-		"path_scope":  token.PathScope,
+		"id":            token.ID,
+		"plain_token":   plainToken,
+		"name":          token.Name,
+		"allowed_paths": token.AllowedPaths,
 	})
 }
 
@@ -295,7 +302,7 @@ func (h *AuthHandler) DeleteToken(c *gin.Context) {
 		"TOKEN_REVOKE",
 		token.Name,
 		"owner", token.User.Username,
-		"scope", token.PathScope,
+		"allowed_paths", token.AllowedPaths,
 	)
 
 	// 4. Return 204 No Content

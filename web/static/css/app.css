@@ -32,7 +32,8 @@
 }
 
 .af-status-guest::before {
-    border: 1.5px solid var(--border); /* Hollow dot */
+    border: 1.5px solid var(--border);
+    /* Hollow dot */
     background: transparent;
 }
 
@@ -42,14 +43,17 @@
 }
 
 .af-status-user::before {
-    background: var(--primary); /* Solid blue dot */
+    background: var(--primary);
+    /* Solid blue dot */
     border: 1.5px solid var(--primary);
-    box-shadow: 0 0 0 2px rgba(33, 150, 243, 0.1); /* Subtle "glow" */
+    box-shadow: 0 0 0 2px rgba(33, 150, 243, 0.1);
+    /* Subtle "glow" */
 }
 
 /* Admin variation */
 .af-status-admin::before {
-    background: #9c27b0; /* Purple dot for Admin */
+    background: #9c27b0;
+    /* Purple dot for Admin */
     border-color: #9c27b0;
 }
 
@@ -61,41 +65,76 @@
 }
 
 /* File Browser Specifics */
-.af-file-indent { padding-left: 32px !important; }
-.af-col-mono { font-family: ui-monospace, monospace; font-size: 12px; }
+.af-file-indent {
+    padding-left: 32px !important;
+}
+
+.af-col-mono {
+    font-family: ui-monospace, monospace;
+    font-size: 12px;
+}
 
 /* Search Dropdown Specifics */
-.af-search-dropdown { top: calc(100% + 5px); left: 0; right: 0; }
-.af-search-meta { display: flex; gap: 4px; margin-top: 4px; }
+.af-search-dropdown {
+    top: calc(100% + 5px);
+    left: 0;
+    right: 0;
+}
+
+.af-search-meta {
+    display: flex;
+    gap: 4px;
+    margin-top: 4px;
+}
 
 /* Transfer Widget Specifics */
-.af-transfer-widget { position: fixed; bottom: 20px; right: 20px; width: 320px; }
-.af-transfer-path { font-size: 10px; color: var(--text-muted); display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.af-transfer-widget {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    width: 320px;
+}
+
+.af-transfer-path {
+    font-size: 10px;
+    color: var(--text-muted);
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
 
 /* Config Viewer in Settings */
 .af-config-viewer {
-    background: #1e1e1e; /* Dark theme */
+    background: #1e1e1e;
+    /* Dark theme */
     color: #d4d4d4;
     padding: 12px;
     border-radius: var(--radius);
     font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
     font-size: 12px;
     border: 1px solid var(--border);
-    
+
     /* THE FIX: Full width logic */
-    width: 100%;             /* Occupy full parent width */
-    box-sizing: border-box;  /* Include padding/border in the 100% calculation */
-    display: block;          /* Ensure it's not inline */
-    
+    width: 100%;
+    /* Occupy full parent width */
+    box-sizing: border-box;
+    /* Include padding/border in the 100% calculation */
+    display: block;
+    /* Ensure it's not inline */
+
     /* Scroll behavior */
-    overflow-x: auto;        /* Horizontal scroll for long lines */
+    overflow-x: auto;
+    /* Horizontal scroll for long lines */
     margin-top: 8px;
 }
 
 .af-config-viewer pre {
     margin: 0;
-    white-space: pre;        /* Keep formatting from JSON.stringify */
-    word-wrap: normal;       /* Don't wrap lines, use the scrollbar instead */
+    white-space: pre;
+    /* Keep formatting from JSON.stringify */
+    word-wrap: normal;
+    /* Don't wrap lines, use the scrollbar instead */
 }
 
 .af-action-banner {
@@ -106,7 +145,8 @@
     background-color: var(--bg-alt);
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    margin-bottom: 24px; /* Space before the info group starts */
+    margin-bottom: 24px;
+    /* Space before the info group starts */
 }
 
 .af-action-banner-text {
@@ -134,17 +174,29 @@
 }
 
 /* Specific Policy Badges */
-.badge-policy-immutable { 
-    background: #f3e5f5; color: #7b1fa2; border: 1px solid #d1c4e9; 
-} /* Purple */
+.badge-policy-immutable {
+    background: #f3e5f5;
+    color: #7b1fa2;
+    border: 1px solid #d1c4e9;
+}
 
-.badge-policy-protected { 
-    background: #fff3e0; color: #e65100; border: 1px solid #ffe0b2; 
-} /* Orange */
+/* Purple */
 
-.badge-policy-restricted { 
-    background: #ffebee; color: #c62828; border: 1px solid #ffcdd2; 
-} /* Red */
+.badge-policy-protected {
+    background: #fff3e0;
+    color: #e65100;
+    border: 1px solid #ffe0b2;
+}
+
+/* Orange */
+
+.badge-policy-restricted {
+    background: #ffebee;
+    color: #c62828;
+    border: 1px solid #ffcdd2;
+}
+
+/* Red */
 
 /* A tiny dot next to the filename if it has any restriction */
 .af-policy-indicator {
@@ -158,5 +210,199 @@
 }
 
 /* Color code the indicator based on severity */
-.af-policy-indicator.restricted { background: var(--danger); opacity: 0.5; }
-.af-policy-indicator.protected { background: var(--warning); opacity: 0.5; }
+.af-policy-indicator.restricted {
+    background: var(--danger);
+    opacity: 0.5;
+}
+
+.af-policy-indicator.protected {
+    background: var(--warning);
+    opacity: 0.5;
+}
+
+/* --- Search Dropdown Alignment Fix --- */
+/* .af-search-dropdown {
+    position: absolute;
+    top: calc(100% + 5px);
+    left: 0;
+    right: 0;
+    background: var(--bg-main);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+    z-index: 1100;
+    max-height: 450px;
+    overflow-y: auto;
+} */
+
+.af-search-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: var(--bg-main);
+    border: 1px solid var(--border);
+    border-radius: 0 0 var(--radius) var(--radius);
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+    margin-top: 5px;
+    z-index: 1100;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.af-search-item {
+    display: flex;
+    align-items: center;
+    padding: 10px 15px;
+    cursor: pointer;
+    border-bottom: 1px solid var(--bg-alt);
+}
+
+.af-search-item:hover {
+    background-color: #f0f7ff;
+}
+
+.af-search-icon {
+    font-size: 18px;
+    margin-right: 12px;
+    width: 24px;
+    text-align: center;
+}
+
+.af-search-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-main);
+}
+
+.af-search-empty {
+    padding: 20px;
+    text-align: center;
+    font-size: 13px;
+    color: var(--text-muted);
+}
+
+.af-search-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    overflow: hidden;
+}
+
+.af-search-top {
+    display: flex;
+    align-items: baseline;
+    flex-direction: column;
+}
+
+.af-search-path {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-family: ui-monospace, monospace;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.af-search-meta {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-wrap: wrap;
+    margin-top: 2px;
+}
+
+/* Adjust badge sizes specifically for search dropdown */
+.af-search-meta .badge-origin,
+.af-search-meta .badge-tag {
+    font-size: 9px;
+    padding: 0px 4px;
+}
+
+.af-search-item {
+    padding: 12px 15px;
+    /* Slightly more padding for the two-line layout */
+}
+
+.af-batch-bar {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--text-main);
+    color: white;
+    padding: 12px 24px;
+    border-radius: 40px;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+    z-index: 9000;
+    transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.af-batch-bar.hidden { transform: translateX(-50%) translateY(100px); }
+
+.af-batch-count {
+    font-weight: 700;
+    font-size: 14px;
+    border-right: 1px solid rgba(255,255,255,0.2);
+    padding-right: 15px;
+}
+.af-selection-column {
+    width: 0;
+    max-width: 0;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: hidden;
+    white-space: nowrap;
+    transition: width 0.2s ease, max-width 0.2s ease;
+}
+
+/* The wrapper inside the cell handles the actual expansion */
+.af-selection-wrapper {
+    width: 0;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: width 0.2s ease;
+}
+
+.af-selection-checkbox {
+    width: 18px;
+    height: 18px;
+    margin: 0;
+    cursor: pointer;
+    opacity: 0;
+    transform: scale(0.5);
+    transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+/* --- ACTIVE SELECTION MODE --- */
+
+.af-table-selection-mode .af-selection-column {
+    width: 44px;    /* Final total width */
+    max-width: 44px;
+}
+
+.af-table-selection-mode .af-selection-wrapper {
+    width: 44px;
+}
+
+.af-table-selection-mode .af-selection-checkbox {
+    opacity: 1;
+    transform: scale(1);
+}
+
+/* Ensure the table itself doesn't have border-spacing that adds gaps */
+.af-table {
+    border-spacing: 0;
+    border-collapse: collapse;
+}
+
+/* Visual cue for selected rows */
+.af-file-row.is-selected {
+    background-color: var(--success-bg) !important;
+}

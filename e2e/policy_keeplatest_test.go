@@ -16,7 +16,7 @@ import (
 
 func TestPolicyDrivenUploads(t *testing.T) {
 	ClearDatabase(Meta.DB)
-	session := PrepareAuth(t, db, "protector2", false, AuthH.Config.Server.JwtSecret)
+	session := PrepareAuth(t, db, "protector2", false, nil, AuthH.Config.Server.JwtSecret)
 
 	t.Run("X-Expires calculates correct absolute time", func(t *testing.T) {
 		target := "/expiry-test.txt"

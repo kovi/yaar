@@ -27,7 +27,7 @@ export async function TokenManagement() {
                         <tr>
                             <td><strong>${t.Name}</strong></td>
                             <td><span class="badge badge-outline">${t.User?.username || 'System'}</span></td>
-                            <td><code class="af-col-mono" style="font-size: 11px;">${t.PathScope}</code></td>
+                            <td><code class="af-col-mono" style="font-size: 11px;">${(t.allowed_paths || []).join(", ")}</code></td>
                             <td class="af-col-mono" style="font-size: 11px;">
                                 ${t.expires_at ? `
                                     <span class="${Format.isExpired(t.expires_at) ? 'expiry-critical' : ''}">
@@ -80,9 +80,9 @@ function openTokenForm(users) {
                     </select>
                 </label>
                 <label>
-                    <span>Path Scope (Restriction)</span>
-                    <input type="text" name="path_scope" value="/" required>
-                    <small class="af-input-help">The token will only be allowed to write under this path.</small>
+                    <span>Allowed Paths</span>
+                    <input type="text" name="allowed_paths" value="/" required>
+                    <small class="af-input-help">Comma separated. The token will only be allowed to write under these paths.</small>
                 </label>
                 ${ExpirationLabel.LABEL_TEMPLATE}
             </div>
@@ -104,7 +104,7 @@ function openTokenForm(users) {
             const result = await API.createToken({
                 name: fd.get('name'),
                 user_id: parseInt(fd.get('user_id')),
-                path_scope: fd.get('path_scope'),
+                allowed_paths: fd.get('allowed_paths').split(",").map(e => e.trim()),
                 expires: Format.durationToBackendFormat(fd.get('expires')),
             });
             dialog.close();

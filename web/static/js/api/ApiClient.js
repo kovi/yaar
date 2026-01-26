@@ -122,6 +122,15 @@ export const API = {
         });
     },
 
+    async moveResource(path, moveTo) {
+        const url = `${BASE_URL}/fs/${path.replace(/\/+/g, '/')}`;
+        return await apiFetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ move_to: moveTo })
+        });
+    },
+
     async getStreams() {
         return await apiFetch('/_/api/v1/streams');
     },

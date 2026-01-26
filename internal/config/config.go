@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/kovi/yaar/internal/models"
 	"gopkg.in/yaml.v3"
 )
 
@@ -24,10 +25,11 @@ type Config struct {
 	} `yaml:"database"`
 
 	Storage struct {
-		BaseDir            string   `yaml:"base_dir" env:"AF_BASE_DIR"`
-		MaxUploadSize      string   `yaml:"max_upload_size" env:"AF_MAX_SIZE"`
-		MaxUploadSizeBytes int64    `yaml:"-"`
-		ProtectedPaths     []string `yaml:"protected_paths" env:"AF_PROTECTED_PATHS"`
+		BaseDir            string                   `yaml:"base_dir" env:"AF_BASE_DIR"`
+		MaxUploadSize      string                   `yaml:"max_upload_size" env:"AF_MAX_SIZE"`
+		MaxUploadSizeBytes int64                    `yaml:"-"`
+		ProtectedPaths     []string                 `yaml:"protected_paths" env:"AF_PROTECTED_PATHS"`
+		DefaultBatchMode   models.BatchDownloadMode `yaml:"default_batch_mode" env:"AF_DEFAULT_BATCH_MODE"`
 	} `yaml:"storage"`
 
 	Audit struct {
@@ -68,6 +70,17 @@ func (c *Config) Finalize() error {
 		return err
 	}
 	c.Storage.MaxUploadSizeBytes = bytes
+
+	// Validate Batch Mode (if set in YAML/Env)
+	// If it's empty, we apply the default. If it's set, it MUST be valid.
+	if c.Storage.DefaultBatchMode == "" {
+		c.Storage.DefaultBatchMode = models.BatchModeLiteral
+	} else {
+		if !c.Storage.DefaultBatchMode.IsValid() {
+			return fmt.Errorf("storage.default_batch_mode: %w",
+				fmt.Errorf("invalid value %q", c.Storage.DefaultBatchMode))
+		}
+	}
 
 	// Normalize paths to ensure they start with / and don't end with /
 	for i, p := range c.Storage.ProtectedPaths {

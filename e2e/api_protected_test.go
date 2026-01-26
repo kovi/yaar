@@ -59,7 +59,7 @@ func TestDirectoryListing_Protected(t *testing.T) {
 
 func TestProtectedPathEnforcement(t *testing.T) {
 	WithConfig(t, func(c *config.Config) { c.Storage.ProtectedPaths = []string{"/protected-listing"} })
-	session := PrepareAuth(t, db, "protector1", false, AuthH.Config.Server.JwtSecret)
+	session := PrepareAuth(t, db, "protector1", false, nil, AuthH.Config.Server.JwtSecret)
 
 	// 3. Create a file in the protected directory
 	protectedFilePath := "/protected-listing/release.v1.bin"

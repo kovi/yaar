@@ -1,7 +1,6 @@
 package e2e
 
 import (
-	"bytes"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -14,14 +13,11 @@ import (
 
 func TestDelete(t *testing.T) {
 	content := []byte("hello delete")
-	session := PrepareAuth(t, db, "udelete", false, AuthH.Config.Server.JwtSecret)
+	session := PrepareAuth(t, db, "udelete", false, nil, AuthH.Config.Server.JwtSecret)
 
 	t.Run("Delete removes metadata too", func(t *testing.T) {
 		target := "/delete/good.txt"
-		req, _ := http.NewRequest("PUT", target, bytes.NewBuffer(content))
-		w := httptest.NewRecorder()
-		session.Apply(req)
-		router.ServeHTTP(w, req)
+		w := Perform(t, router, "PUT", target, WithBody(content), WithSession(session))
 
 		// File and meta was created
 		assert.Equal(t, http.StatusOK, w.Code, w.Body.String())
@@ -30,10 +26,7 @@ func TestDelete(t *testing.T) {
 		db.Model(&api.MetaResource{}).Where("path = ?", target).Count(&count)
 		assert.Equal(t, int64(1), count)
 
-		req, _ = http.NewRequest("DELETE", target, bytes.NewBuffer(content))
-		session.Apply(req)
-		w = httptest.NewRecorder()
-		router.ServeHTTP(w, req)
+		w = Perform(t, router, "DELETE", target, WithBody(content), WithSession(session))
 
 		// File and meta are no longer exist
 		assert.Equal(t, http.StatusNoContent, w.Code, w.Body.String())
@@ -44,7 +37,7 @@ func TestDelete(t *testing.T) {
 }
 
 func TestRecursiveDelete_WithAuditCollection(t *testing.T) {
-	session := PrepareAuth(t, db, "udelete1", false, AuthH.Config.Server.JwtSecret)
+	session := PrepareAuth(t, db, "udelete1", false, nil, AuthH.Config.Server.JwtSecret)
 
 	t.Run("Audit log should contain all nested paths", func(t *testing.T) {
 		// 1. Create a structure with 3 files

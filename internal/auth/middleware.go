@@ -37,7 +37,7 @@ func Identify(secret string, db *gorm.DB, cache *UserCache) gin.HandlerFunc {
 				c.Set("user_id", t.UserID)
 				c.Set("username", t.User.Username)
 				c.Set("is_admin", t.User.IsAdmin)
-				c.Set("allowed_paths", strings.Split(t.PathScope, ","))
+				c.Set("allowed_paths", []string(t.AllowedPaths))
 
 				// UPDATE LAST USED:
 				// We use a separate Update call to keep it efficient.
@@ -72,18 +72,18 @@ func Identify(secret string, db *gorm.DB, cache *UserCache) gin.HandlerFunc {
 			return
 		}
 
-		exists, _, found := cache.Get(claims.UserID)
+		exists, found, _ := cache.Get(claims.UserID)
 		if !found {
 			// Cache miss: Check the real database
 			var user models.User
-			res := db.Select("id", "is_admin").Limit(1).Find(&user, claims.UserID)
+			res := db.Select("id", "is_admin", "allowed_paths").Limit(1).Find(&user, claims.UserID)
 			if res.Error != nil {
 				logrus.Infof("DB query error: %v", res.Error)
 				c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Invalid auth"})
 			}
 			if res.RowsAffected == 0 {
 				// User was likely deleted from DB
-				cache.Set(claims.UserID, false, false, 5*time.Minute)
+				cache.Set(claims.UserID, false, false, []string{}, 5*time.Minute)
 				c.AbortWithStatusJSON(401, gin.H{"error": "User no longer exists"})
 				return
 			}
@@ -91,18 +91,20 @@ func Identify(secret string, db *gorm.DB, cache *UserCache) gin.HandlerFunc {
 			// Update local info
 			exists = true
 			claims.IsAdmin = user.IsAdmin
-			cache.Set(claims.UserID, true, claims.IsAdmin, 2*time.Minute)
+			claims.AllowedPaths = user.AllowedPaths
+			cache.Set(claims.UserID, true, claims.IsAdmin, claims.AllowedPaths, 2*time.Minute)
 		}
 
 		if !exists {
 			c.AbortWithStatusJSON(401, gin.H{"error": "Account disabled"})
 			return
 		}
+		logrus.Infof("claims: %v", claims)
 
 		c.Set("user_id", claims.UserID)
 		c.Set("username", claims.Username)
 		c.Set("is_admin", claims.IsAdmin)
-		c.Set("allowed_paths", strings.Split("/", "")) // Humans have full access by default in this design
+		c.Set("allowed_paths", []string(claims.AllowedPaths))
 		c.Next()
 	}
 }

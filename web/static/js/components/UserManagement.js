@@ -16,6 +16,7 @@ export async function UserManagement() {
                     <tr>
                         <th>Username</th>
                         <th>Role</th>
+                        <th>Allowed Paths</th>
                         <th style="text-align:right">Actions</th>
                     </tr>
                 </thead>
@@ -24,6 +25,7 @@ export async function UserManagement() {
                         <tr>
                             <td><strong>${u.username}</strong></td>
                             <td>${u.is_admin ? '<span class="badge badge-info">Admin</span>' : '<span class="badge badge-outline">User</span>'}</td>
+                            <td><code class="af-col-mono" style="font-size: 11px;">${(u.allowed_paths || []).join(", ")}</code></td>
                             <td style="text-align:right">
                                 <button class="btn btn-ghost edit-user" data-id="${u.id}">Edit</button>
                                 <button class="btn btn-ghost btn-danger delete-user" data-id="${u.id}" 
@@ -81,8 +83,8 @@ function openUserForm(user = null) {
                 
                 <div style="margin-top: 15px; padding-top: 15px; border-top: 1px dashed var(--border)">
                     <label>
-                        <span>Allowed Paths (Experimental)</span>
-                        <input type="text" name="allowed_paths" placeholder="/projects/A, /public" disabled>
+                        <span>Allowed Paths</span>
+                        <input type="text" name="allowed_paths" placeholder="/projects/A, /public" value="${(user?.allowed_paths || []).join(", ")}">
                         <small class="af-input-help">Restrict user to specific directories.</small>
                     </label>
                 </div>
@@ -102,7 +104,8 @@ function openUserForm(user = null) {
         const fd = new FormData(e.target);
         const data = {
             password: fd.get('password') || undefined,
-            is_admin: fd.get('is_admin') === 'on'
+            is_admin: fd.get('is_admin') === 'on',
+            allowed_paths: fd.get('allowed_paths').split(",").map(e => e.trim())
         };
         if (!isEdit) data.username = fd.get('username');
 
