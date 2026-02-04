@@ -40,11 +40,16 @@ func ParseExpiry(input string) (time.Time, error) {
 
 	// Try Relative Durations
 	// Handle custom 'd' suffix for days
-	if strings.HasSuffix(input, "d") {
-		daysStr := strings.TrimSuffix(input, "d")
+	if daysStr, found := strings.CutSuffix(input, "d"); found {
 		days, err := strconv.Atoi(daysStr)
 		if err == nil {
 			return time.Now().AddDate(0, 0, days), nil
+		}
+	}
+	if weeksStr, found := strings.CutSuffix(input, "w"); found {
+		days, err := strconv.Atoi(weeksStr)
+		if err == nil {
+			return time.Now().AddDate(0, 0, days*7), nil
 		}
 	}
 

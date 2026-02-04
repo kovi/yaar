@@ -18,6 +18,7 @@ type Config struct {
 	Server struct {
 		Port      int    `yaml:"port" env:"AF_PORT"`
 		JwtSecret string `yaml:"jwt_secret" env:"JWT_SECRET" json:"-"`
+		WebDir    string `yaml:"web_dir" env:"AF_WEB_DIR" `
 	} `yaml:"server"`
 
 	Database struct {
@@ -46,6 +47,7 @@ func NewConfig() *Config {
 	cfg.Storage.BaseDir = "storage"
 	cfg.Storage.MaxUploadSize = "100MB"
 	cfg.Audit.File = "audit.log"
+	cfg.Server.WebDir = "web"
 
 	return cfg
 }

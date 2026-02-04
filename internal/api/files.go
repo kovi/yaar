@@ -121,7 +121,7 @@ func (h *Handler) HandleUpload(c *gin.Context) {
 	}
 
 	if ok, msg := h.CanModify(finalRelativePath, allowed_paths, opts); !ok {
-		h.Audit.WithContext(c).Failure(audit.ActionUpload, finalRelativePath, fmt.Errorf(msg))
+		h.Audit.WithContext(c).Failure(audit.ActionUpload, finalRelativePath, errors.New(msg))
 		c.JSON(403, gin.H{"error": msg})
 		return
 	}

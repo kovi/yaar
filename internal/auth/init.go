@@ -14,8 +14,8 @@ func bootstrapAdmin(db *gorm.DB) {
 	var count int64
 	db.Model(&models.User{}).Count(&count)
 	if count == 0 {
-		admin := models.User{Username: "admin", IsAdmin: true}
-		admin.SetPassword("admin123") // Should come from config
+		admin := models.User{Username: "admin", IsAdmin: true, AllowedPaths: models.StringList{"/"}}
+		admin.SetPassword("admin123")
 		db.Create(&admin)
 		fmt.Println("Created default admin user: admin / admin123")
 	}

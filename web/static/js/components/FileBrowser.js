@@ -73,8 +73,8 @@ rowTemplate.innerHTML = `
                 
                 <div class="af-dropdown hidden af-row-dropdown">
                     <button class="af-dropdown-item info-btn">ℹ️ Details</button>
-                    <button class="af-dropdown-item move-btn">📦 Move</button>
-                    <button class="af-dropdown-item edit-btn">📝 Edit Meta</button>
+                    <button class="af-dropdown-item move-btn af-requires-auth">📦 Move</button>
+                    <button class="af-dropdown-item edit-btn af-requires-auth">📝 Edit Meta</button>
                     <div class="af-dropdown-divider af-requires-auth"></div>
                     <button class="af-dropdown-item btn-danger del-btn af-requires-auth">🗑️ Delete</button>
                 </div>
@@ -113,6 +113,18 @@ editModalTemplate.innerHTML = `
                     <input type="checkbox" name="immutable"> 
                     <span>Immutable</span>
                 </label>
+
+                <!-- Directory Specific Fields -->
+                <div class="af-dir-only" style="margin-top: 15px; padding-top: 15px; border-top: 1px dashed var(--border)">
+                    <label>
+                        <span>Default Batch Download Mode</span>
+                        <select name="download_mode" class="af-select">
+                            <option value="literal">Literal (Preserve Folder Name)</option>
+                            <option value="merge">Merge (Flatten contents to ZIP root)</option>
+                        </select>
+                        <small class="af-input-help">How files inside this folder are packaged in a ZIP.</small>
+                    </label>
+                </div>
             </div>
             <div class="af-modal-footer">
                 <button type="button" class="btn btn-ghost modal-close">Cancel</button>
@@ -127,11 +139,17 @@ let isSelectionMode = false;
 let selectedPaths = new Set();
 let pressTimer;
 let preventClick = false;
+let lastSelectedIndex = -1;
 
 
 function openEditModal(file, path) {
     const dialog = document.getElementById('edit-meta-dialog');
     const form = dialog.querySelector('form');
+    const isDir = file.isdir
+
+    dialog.querySelectorAll('.af-dir-only').forEach(el => {
+        el.classList.toggle('hidden', !isDir);
+    });
 
     // Store the "Original" state for comparison later
     // We normalize the values (e.g., dates) to match how they appear in form inputs
@@ -142,6 +160,7 @@ function openEditModal(file, path) {
         expires: file.expires_at || '',
         stream: file.stream && file.group ? `${file.stream}/${file.group}` : '',
         keep_latest: file.keep_latest,
+        download_mode: file.download_mode,
     };
 
     form.dataset.path = path + "/" + file.name;
@@ -163,6 +182,7 @@ function openEditModal(file, path) {
     form.querySelector('[name="immutable"]').checked = originalMeta.immutable;
     form.querySelector('[name="stream"]').value = originalMeta.stream;
     form.querySelector('[name="keep_latest"]').checked = originalMeta.keep_latest;
+    form.querySelector('[name="download_mode"]').value = file.download_mode || 'literal';
     ExpirationLabel.setupExpiryPicker(dialog);
     ExpirationLabel.setValue(dialog, originalMeta.expires);
     dialog.showModal();
@@ -195,7 +215,7 @@ async function onEditSubmit(e) {
     if (currentImmutable !== originalMeta.immutable) payload.immutable = currentImmutable;
 
     const currentKeepLatest = fd.get('keep_latest') === 'on';
-    if (currentKeepLatest !== originalMeta.KeepLatest) payload.keep_latest = currentKeepLatest;
+    if (currentKeepLatest !== originalMeta.keep_latest) payload.keep_latest = currentKeepLatest;
 
     const currentExpires = fd.get('expires')?.trim();
     if (currentExpires !== originalMeta.expires) {
@@ -205,6 +225,11 @@ async function onEditSubmit(e) {
     const currentStream = fd.get('stream');
     if (currentStream !== originalMeta.stream) {
         payload.stream = currentStream;
+    }
+
+    const currentDownloadMode = fd.get('download_mode');
+    if (currentDownloadMode != originalMeta.download_mode) {
+        payload.download_mode = currentDownloadMode;
     }
 
     if (Object.keys(payload).length !== 0) {
@@ -264,7 +289,8 @@ function updateSearchParams(col, nextOrder) {
 
 function enterSelectionMode(table) {
     isSelectionMode = true;
-    table.classList.add('af-table-selection-mode');
+    lastSelectedIndex = -1;
+    table.classList.add('af-table-selection-mode', 'af-selection-active');
 }
 
 function exitSelectionMode() {
@@ -457,12 +483,14 @@ export async function FileBrowser(path) {
         table.classList.add('af-table-selection-mode');
     }
 
-    files.forEach(file => {
+    files.forEach((file, index) => {
         const row = rowTemplate.content.cloneNode(true);
-
+        const el = row.querySelector('.af-file-row');
         const link = row.querySelector('.af-file-link');
         const icon = row.querySelector('.af-file-icon');
         const text = row.querySelector('.af-file-text');
+
+        el.dataset.index = index;
 
         // Set Icon
         icon.textContent = Format.getFileIcon(file);
@@ -550,7 +578,7 @@ export async function FileBrowser(path) {
         row.querySelector('.info-btn').onclick = () => openFileInfo(file);
         row.querySelector('.move-btn').onclick = () => openMoveDialog(file, path);
         row.querySelector('.edit-btn').onclick = () => openEditModal(file, path);
-        row.querySelector('.del-btn').onclick = () => handleDelete(file.name);
+        row.querySelector('.del-btn').onclick = () => handleDelete(file);
 
         // Policy indicator
         const policy = file.policy;
@@ -589,18 +617,20 @@ export async function FileBrowser(path) {
                 rowEl.classList.add('is-selected');
             }
 
-            const toggleItem = (force) => {
-                const fullPath = (path + '/' + file.name).replace(/\/+/g, '/');
+            const toggleItem = (row, force, setLast = true) => {
+                const file = row.querySelector('.af-file-text').textContent;
+                const checkbox = row.querySelector('.af-selection-checkbox');
+                const fullPath = (path + '/' + file).replace(/\/+/g, '/');
                 const newState = (force !== undefined) ? force : !checkbox.checked;
                 checkbox.checked = newState;
 
                 if (newState) {
                     selectedPaths.add(fullPath);
-                    rowEl.classList.add('is-selected');
+                    row.classList.add('is-selected');
                     if (!isSelectionMode) enterSelectionMode(table);
                 } else {
                     selectedPaths.delete(fullPath);
-                    rowEl.classList.remove('is-selected');
+                    row.classList.remove('is-selected');
                 }
 
                 // If user unchecks the last item, exit selection mode automatically
@@ -609,6 +639,8 @@ export async function FileBrowser(path) {
                 }
 
                 updateBatchBar();
+                if (setLast)
+                    lastSelectedIndex = parseInt(row.dataset.index);
             };
 
             rowEl.onclick = (e) => {
@@ -630,7 +662,32 @@ export async function FileBrowser(path) {
                 e.preventDefault();  // Stop the <a> from navigating
                 e.stopPropagation(); // Stop the global SPA listener in app.js
 
-                toggleItem();
+                const currentIndex = parseInt(rowEl.dataset.index);
+
+                if (e.shiftKey && lastSelectedIndex !== -1) {
+                    const start = Math.min(lastSelectedIndex, currentIndex);
+                    const end = Math.max(lastSelectedIndex, currentIndex);
+
+                    // Find all rows in this range and force them to 'checked'
+                    let m = 0
+                    const rows = document.querySelectorAll('.af-file-row');
+                    if (rows.length > 0 && rows[0].classList.contains("af-back-row")) {
+                        m = 1   // modify indices by adding +1 if there is a .. which we want to ignore
+                        if (rows.length == 1) {
+                            return;
+                        }
+                    }
+                    const newState = !rows[currentIndex + m].querySelector('.af-selection-checkbox').checked;
+                    for (let i = start + m; i <= end + m; i++) {
+                        const r = rows[i];
+                        toggleItem(r, newState, false)
+                    }
+
+                    lastSelectedIndex = currentIndex;
+                    return;
+                }
+
+                toggleItem(rowEl);
             };
 
             // 1. Long Press Detection
@@ -638,7 +695,7 @@ export async function FileBrowser(path) {
                 if (isSelectionMode || e.button !== 0) return;
                 preventClick = false
                 pressTimer = setTimeout(() => {
-                    toggleItem(true)
+                    toggleItem(rowEl, true)
                     preventClick = true;
                 }, 600);
             };
@@ -648,14 +705,14 @@ export async function FileBrowser(path) {
 
             // 2. Mobile Touch Support
             rowEl.ontouchstart = () => {
-                pressTimer = setTimeout(() => toggleItem(true), 600);
+                pressTimer = setTimeout(() => toggleItem(rowEl, true), 600);
             };
             rowEl.ontouchend = () => clearTimeout(pressTimer);
 
             // 3. Direct Checkbox Click
             checkbox.onclick = (e) => {
                 e.stopPropagation();
-                toggleItem(checkbox.checked);
+                toggleItem(rowEl, checkbox.checked);
             };
         }
 

@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 	"os"
+	"path"
 	"strconv"
 	"strings"
 
@@ -63,13 +64,13 @@ func (h *Handler) defaultHandler(c *gin.Context) {
 		fallthrough
 	case http.MethodHead:
 		dbPath := dbPath(c.Request.URL.Path)
-		path := h.fsPath(dbPath)
+		p := h.fsPath(dbPath)
 		isHtmlRequested := getScore(c.GetHeader("Accept"), "text/html") > 0
-		stat, err := os.Stat(path)
+		stat, err := os.Stat(p)
 		if err != nil || (stat.IsDir() && isHtmlRequested) {
 			// Path doesn't exist?
 			// Serve UI so the SPA can show a 404 or the directory listing
-			c.File("./web/index.html")
+			c.File(path.Join(h.Config.Server.WebDir, "/index.html"))
 			return
 		}
 

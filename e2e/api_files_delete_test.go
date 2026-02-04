@@ -2,7 +2,6 @@ package e2e
 
 import (
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -12,6 +11,7 @@ import (
 )
 
 func TestDelete(t *testing.T) {
+	ClearDatabase(Meta.DB)
 	content := []byte("hello delete")
 	session := PrepareAuth(t, db, "udelete", false, nil, AuthH.Config.Server.JwtSecret)
 
@@ -52,11 +52,7 @@ func TestRecursiveDelete_WithAuditCollection(t *testing.T) {
 		db.Create(&api.MetaResource{Path: "/dir", Type: "dir"})
 
 		// 2. Delete the directory
-		req, _ := http.NewRequest("DELETE", "/dir", nil)
-		w := httptest.NewRecorder()
-		session.Apply(req)
-		router.ServeHTTP(w, req)
-
+		w := Perform(t, router, "DELETE", "/dir", WithSession(session))
 		assert.Equal(t, http.StatusNoContent, w.Code)
 
 		// 3. Verify DB is empty

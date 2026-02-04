@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"os"
+	"path"
 	"strconv"
 	"time"
 
@@ -33,7 +34,8 @@ func main() {
 	configFile := flag.String("config", "config.yml", "config file path")
 	portFlag := flag.Int("port", cfg.Server.Port, "HTTP server port")
 	dbFlag := flag.String("db", cfg.Database.File, "Path to SQLite database file")
-	baseDirFlag := flag.String("dir", cfg.Storage.BaseDir, "Base directory for file storage")
+	baseDirFlag := flag.String("data-dir", cfg.Storage.BaseDir, "Base data directory for file storage")
+	webDirFlag := flag.String("web-dir", cfg.Server.WebDir, "Base data directory for file storage")
 	auditFlag := flag.String("audit-log", cfg.Audit.File, "Path to the audit log file")
 	maxSizeFlag := flag.String("max-upload-size", cfg.Storage.MaxUploadSize, "Maximum upload size")
 	flag.Parse()
@@ -66,12 +68,14 @@ func main() {
 			cfg.Server.Port = *portFlag
 		case "db":
 			cfg.Database.File = *dbFlag
-		case "dir":
+		case "data-dir":
 			cfg.Storage.BaseDir = *baseDirFlag
 		case "audit-log":
 			cfg.Audit.File = *auditFlag
 		case "max-upload-size":
 			cfg.Storage.MaxUploadSize = *maxSizeFlag
+		case "web-dir":
+			cfg.Server.WebDir = *webDirFlag
 		}
 	})
 
@@ -118,7 +122,8 @@ func main() {
 		UserCache: *auth.NewUserCache(),
 		Log:       logrus.WithField("module", "auth")}
 
-	r.Static("/_/static", "./web/static")
+	log.Infof("Web dir: %v", cfg.Server.WebDir)
+	r.Static("/_/static", path.Join(cfg.Server.WebDir, "static"))
 	r.Use(auth.Identify(cfg.Server.JwtSecret, db, &authH.UserCache))
 
 	m.RegisterRoutes(r)

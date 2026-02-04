@@ -23,20 +23,21 @@ type ResourcePolicy struct {
 }
 
 type FileResponse struct {
-	Name           string         `json:"name"`
-	IsDir          bool           `json:"isdir"`
-	Size           int64          `json:"size"`
-	ModTime        time.Time      `json:"modtime"`
-	ExpiresAt      time.Time      `json:"expires_at,omitempty"`
-	Tags           []MetaTag      `json:"tags,omitempty"`
-	Stream         string         `json:"stream,omitempty"`
-	Group          string         `json:"group,omitempty"`
-	KeepLatest     bool           `json:"keep_latest,omitempty"`
-	ContentType    string         `json:"contenttype,omitempty"`
-	ChecksumSHA1   string         `json:"checksum_sha1,omitempty"`
-	ChecksumSHA256 string         `json:"checksum_sha256,omitempty"`
-	ChecksumMD5    string         `json:"checksum_md5,omitempty"`
-	Policy         ResourcePolicy `json:"policy"`
+	Name           string                   `json:"name"`
+	IsDir          bool                     `json:"isdir"`
+	Size           int64                    `json:"size"`
+	ModTime        time.Time                `json:"modtime"`
+	ExpiresAt      time.Time                `json:"expires_at,omitempty"`
+	Tags           []MetaTag                `json:"tags,omitempty"`
+	Stream         string                   `json:"stream,omitempty"`
+	Group          string                   `json:"group,omitempty"`
+	KeepLatest     bool                     `json:"keep_latest,omitempty"`
+	ContentType    string                   `json:"contenttype,omitempty"`
+	ChecksumSHA1   string                   `json:"checksum_sha1,omitempty"`
+	ChecksumSHA256 string                   `json:"checksum_sha256,omitempty"`
+	ChecksumMD5    string                   `json:"checksum_md5,omitempty"`
+	Policy         ResourcePolicy           `json:"policy"`
+	DownloadMode   models.BatchDownloadMode `json:"download_mode"`
 }
 
 type ResourceType string
@@ -66,6 +67,8 @@ type MetaResource struct {
 	SHA1   string `gorm:"size:40;index"`
 	SHA256 string `gorm:"size:64;index"`
 
+	DownloadMode models.BatchDownloadMode `gorm:"type:text;default:'literal'"`
+
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
@@ -79,10 +82,11 @@ type MetaTag struct {
 }
 
 type MetaPatchRequest struct {
-	ExpiresAt   *string `json:"expires_at"`
-	Tags        *string `json:"tags"`
-	Immutable   *bool   `json:"immutable"`
-	Stream      *string `json:"stream"`
-	KeepLatest  *bool   `json:"keep_latest"`
-	ContentType *string `json:"contenttype"`
+	ExpiresAt    *string                   `json:"expires_at"`
+	Tags         *string                   `json:"tags"`
+	Immutable    *bool                     `json:"immutable"`
+	Stream       *string                   `json:"stream"`
+	KeepLatest   *bool                     `json:"keep_latest"`
+	ContentType  *string                   `json:"contenttype"`
+	DownloadMode *models.BatchDownloadMode `json:"download_mode"`
 }

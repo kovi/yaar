@@ -1,0 +1,14 @@
+services:
+  artifactory:
+    restart: always
+    image: yaar:experimental
+    ports:
+      - 8889:8080
+    command:
+      - -dir=/data
+      - -db=/config/artifactory.db
+      - -audit-log=/config/audit.log
+      - -config=/config/config.yml
+    volumes:
+      - ./data:/data
+      - ./config:/config

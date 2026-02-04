@@ -1,5 +1,5 @@
 import { ui } from '../components/TransferWidget.js';
-
+import { uuid } from '../api/Crypto.js'
 const STORAGE_KEY = 'artifactory_history';
 
 export const TransferManager = {
@@ -21,7 +21,7 @@ export const TransferManager = {
     upload(file, url, targetPath, customHeaders = {}) {
         console.log("upload", file, url, targetPath, customHeaders)
         const task = {
-            id: crypto.randomUUID(),
+            id: uuid(),
             name: file.name,
             status: 'uploading',
             percent: 0,

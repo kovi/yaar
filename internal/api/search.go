@@ -36,7 +36,7 @@ func (h *Handler) Search(c *gin.Context) {
 
 	// 2. Query Tags directly to find files matching by tag but not by name
 	var matchedTags []MetaTag
-	rtags := h.DB.Debug().
+	rtags := h.DB.
 		Joins("Resource").
 		Preload("Resource.Tags").
 		Where("key LIKE ? OR value LIKE ?", searchPattern, searchPattern).

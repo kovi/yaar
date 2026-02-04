@@ -220,21 +220,6 @@
     opacity: 0.5;
 }
 
-/* --- Search Dropdown Alignment Fix --- */
-/* .af-search-dropdown {
-    position: absolute;
-    top: calc(100% + 5px);
-    left: 0;
-    right: 0;
-    background: var(--bg-main);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
-    z-index: 1100;
-    max-height: 450px;
-    overflow-y: auto;
-} */
-
 .af-search-dropdown {
     position: absolute;
     top: 100%;
@@ -371,8 +356,8 @@
 }
 
 .af-selection-checkbox {
-    width: 18px;
-    height: 18px;
+    width: 13px;
+    height: 13px;
     margin: 0;
     cursor: pointer;
     opacity: 0;
@@ -405,4 +390,9 @@
 /* Visual cue for selected rows */
 .af-file-row.is-selected {
     background-color: var(--success-bg) !important;
+}
+
+.af-selection-active {
+    user-select: none;
+    -webkit-user-select: none; /* Safari support */
 }

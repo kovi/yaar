@@ -1,13 +1,14 @@
 FROM golang:alpine AS builder
 
-RUN apk update && apk add --no-cache git
-WORKDIR $GOPATH/src/mypackage/myapp/
+WORKDIR /src
 
-COPY . .
-RUN go get -d -v
-RUN GOOS=linux GOARCH=amd64 go build -ldflags="-w -s" -o /yaar
+RUN apk add --no-cache git
+RUN --mount=type=bind,source=.,target=/src \
+    git status && \
+    GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-w -s" -o /yaar
+    # go get -v && \
 
 FROM scratch
 COPY --from=builder /yaar /yaar
-COPY browser.html /browser.html
+COPY web /web
 ENTRYPOINT ["/yaar"]

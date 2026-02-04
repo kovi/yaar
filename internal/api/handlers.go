@@ -50,6 +50,7 @@ func (h *Handler) toResponseFromMeta(c *gin.Context, meta MetaResource) FileResp
 	o.ChecksumMD5 = meta.MD5
 	o.ChecksumSHA1 = meta.SHA1
 	o.ChecksumSHA256 = meta.SHA256
+	o.DownloadMode = meta.DownloadMode
 
 	return o
 }
@@ -90,6 +91,7 @@ func (h *Handler) toResponse(c *gin.Context, urlPath string, i os.FileInfo) File
 	o.ChecksumSHA1 = meta.SHA1
 	o.ChecksumSHA256 = meta.SHA256
 	o.Policy.IsImmutable = meta.Immutable != nil && *meta.Immutable
+	o.DownloadMode = meta.DownloadMode
 
 	return o
 }
@@ -175,6 +177,14 @@ func (h *Handler) PatchMeta(c *gin.Context) {
 		}
 	}
 
+	if req.DownloadMode != nil {
+		if !req.DownloadMode.IsValid() {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "wrong download_mode"})
+			return
+		}
+
+	}
+
 	var resource MetaResource
 	err = h.DB.Transaction(func(tx *gorm.DB) error {
 		result := tx.Where("path = ?", path).Limit(1).Find(&resource)
@@ -213,6 +223,9 @@ func (h *Handler) PatchMeta(c *gin.Context) {
 		if req.Stream != nil {
 			updateData["stream"] = stream
 			updateData["group"] = group
+		}
+		if req.DownloadMode != nil {
+			updateData["download_mode"] = *req.DownloadMode
 		}
 
 		if len(updateData) > 0 {

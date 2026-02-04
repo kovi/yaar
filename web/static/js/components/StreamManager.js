@@ -142,7 +142,7 @@ async function renderStreamDetail(name) {
                             <span class="af-file-icon">${Format.getFileIcon(file)}</span>
                             <div class="af-file-details">
                                 <div style="display:flex; align-items:center;">
-                                    <a href="${file.name}" class="nav-link af-file-name">${file.name}</a>
+                                    <a href="${file.name}" class="af-file-name">${file.name}</a>
                                     <a href="${parentDir}?highlight=${filename}" class="nav-link af-locate-btn" title="Open containing folder">
                                         ${ICON_LOCATE} Go to folder
                                     </a>
