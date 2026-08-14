@@ -1,16 +1,25 @@
-import { API } from '../api/ApiClient.js';
-import { Format } from '../api/Format.js';
-import * as ExpirationLabel from './ExpirationLabel.js'
+import { API } from "../api/ApiClient.js";
+import { Auth } from "../api/Auth.js";
+import { copyToClipboard } from "../api/Clipboard.js";
+import { Format } from "../api/Format.js";
+import * as ExpirationLabel from "./ExpirationLabel.js";
+import { showToast } from "./Toast.js";
 
 export async function TokenManagement() {
-    const container = document.createElement('div');
-    const [tokens, users] = await Promise.all([API.getTokens(), API.getUsers()]);
+	const container = document.createElement("div");
+	const tokens = await API.getTokens();
+	const currentUser = Auth.getUser();
+	// We only need the user list for the "Create" dropdown if the user is an admin
+	const users = currentUser.isAdmin ? await API.getUsers() : [];
 
-    container.innerHTML = `
+	container.innerHTML = `
         <div class="af-actions" style="margin-bottom: 15px;">
             <button class="btn btn-primary btn-sm" id="gen-token-btn">+ Generate New Token</button>
         </div>
-        <div class="af-table-wrapper">
+        ${
+					tokens.length === 0
+						? `<div class="af-alert af-alert-info">No tokens yet</div>`
+						: `<div class="af-table-wrapper">
             <table class="af-table af-table-compact">
                 <thead>
                     <tr>
@@ -23,49 +32,58 @@ export async function TokenManagement() {
                     </tr>
                 </thead>
                 <tbody id="token-table-body">
-                    ${tokens.map(t => `
+                    ${tokens
+											.map(
+												(t) => `
                         <tr>
                             <td><strong>${t.Name}</strong></td>
-                            <td><span class="badge badge-outline">${t.User?.username || 'System'}</span></td>
+                            <td><span class="badge badge-outline">${t.User?.username || "System"}</span></td>
                             <td><code class="af-col-mono" style="font-size: 11px;">${(t.allowed_paths || []).join(", ")}</code></td>
                             <td class="af-col-mono" style="font-size: 11px;">
-                                ${t.expires_at ? `
-                                    <span class="${Format.isExpired(t.expires_at) ? 'expiry-critical' : ''}">
+                                ${
+																	t.expires_at
+																		? `
+                                    <span class="${Format.isExpired(t.expires_at) ? "expiry-critical" : ""}">
                                         ${Format.dateTime(t.expires_at)}
                                     </span>
-                                ` : '<span class="af-text-muted">Never</span>'}
+                                `
+																		: '<span class="af-text-muted">Never</span>'
+																}
                             </td>
                             <td class="af-col-mono" style="font-size: 11px;">${Format.dateTime(t.last_used_at)}</td>
                             <td style="text-align:right">
                                 <button class="btn btn-ghost btn-danger revoke-token" data-id="${t.ID}">Revoke</button>
                             </td>
                         </tr>
-                    `).join('')}
+                    `,
+											)
+											.join("")}
                 </tbody>
             </table>
-        </div>
-    `;
+        </div>`
+				}`;
 
-    container.querySelector('#gen-token-btn').onclick = () => openTokenForm(users);
+	container.querySelector("#gen-token-btn").onclick = () =>
+		openTokenForm(users, currentUser.isAdmin);
 
-    container.querySelectorAll('.revoke-token').forEach((btn, i) => {
-        btn.onclick = async () => {
-            if (confirm(`Revoke token "${tokens[i].Name}"?`)) {
-                await API.deleteToken(tokens[i].ID);
-                window.dispatchEvent(new CustomEvent('af:settings-refresh'));
-            }
-        };
-    });
+	container.querySelectorAll(".revoke-token").forEach((btn, i) => {
+		btn.onclick = async () => {
+			if (confirm(`Revoke token "${tokens[i].Name}"?`)) {
+				await API.deleteToken(tokens[i].ID);
+				window.dispatchEvent(new CustomEvent("af:settings-refresh"));
+			}
+		};
+	});
 
-    return container;
+	return container;
 }
 
-function openTokenForm(users) {
-    const dialog = document.createElement('dialog');
-    dialog.className = 'af-modal';
-    dialog.style.zIndex = '1100';
+function openTokenForm(users, isAdmin) {
+	const dialog = document.createElement("dialog");
+	dialog.className = "af-modal";
+	dialog.style.zIndex = "1100";
 
-    dialog.innerHTML = `
+	dialog.innerHTML = `
         <form method="dialog" class="af-form">
             <div class="af-modal-header"><h3>Generate Automation Token</h3></div>
             <div class="af-modal-body">
@@ -73,12 +91,16 @@ function openTokenForm(users) {
                     <span>Description / Name</span>
                     <input type="text" name="name" placeholder="e.g. Jenkins-Prod-Deploy" required>
                 </label>
-                <label>
+                ${
+									isAdmin
+										? `<label>
                     <span>Assign to User</span>
                     <select name="user_id" class="af-select" required>
-                        ${users.map(u => `<option value="${u.id}">${u.username}</option>`).join('')}
+                        ${users.map((u) => `<option value="${u.id}">${u.username}</option>`).join("")}
                     </select>
-                </label>
+                </label>`
+										: ""
+								}
                 <label>
                     <span>Allowed Paths</span>
                     <input type="text" name="allowed_paths" value="/" required>
@@ -92,35 +114,43 @@ function openTokenForm(users) {
             </div>
         </form>
     `;
-    ExpirationLabel.setupExpiryPicker(dialog);
+	ExpirationLabel.setupExpiryPicker(dialog);
 
-    document.body.appendChild(dialog);
-    dialog.showModal();
+	document.body.appendChild(dialog);
+	dialog.showModal();
 
-    dialog.querySelector('#token-cancel').onclick = () => { dialog.close(); dialog.remove(); };
-    dialog.querySelector('form').onsubmit = async (e) => {
-        const fd = new FormData(e.target);
-        try {
-            const result = await API.createToken({
-                name: fd.get('name'),
-                user_id: parseInt(fd.get('user_id')),
-                allowed_paths: fd.get('allowed_paths').split(",").map(e => e.trim()),
-                expires: Format.durationToBackendFormat(fd.get('expires')),
-            });
-            dialog.close();
-            dialog.remove();
-            showSecretToken(result.plain_token); // Show the one-time secret
-            window.dispatchEvent(new CustomEvent('af:settings-refresh'));
-        } catch (err) { alert(err.message); }
-    };
+	dialog.querySelector("#token-cancel").onclick = () => {
+		dialog.close();
+		dialog.remove();
+	};
+	dialog.querySelector("form").onsubmit = async (e) => {
+		const fd = new FormData(e.target);
+		try {
+			const result = await API.createToken({
+				name: fd.get("name"),
+				user_id: parseInt(fd.get("user_id"), 10),
+				allowed_paths: fd
+					.get("allowed_paths")
+					.split(",")
+					.map((e) => e.trim()),
+				expires: Format.durationToBackendFormat(fd.get("expires")),
+			});
+			dialog.close();
+			dialog.remove();
+			showSecretToken(result.plain_token); // Show the one-time secret
+			window.dispatchEvent(new CustomEvent("af:settings-refresh"));
+		} catch (err) {
+			showToast(err.message, "error");
+		}
+	};
 }
 
 function showSecretToken(plainToken) {
-    const dialog = document.createElement('dialog');
-    dialog.className = 'af-modal';
-    dialog.style.zIndex = '1200';
+	const dialog = document.createElement("dialog");
+	dialog.className = "af-modal";
+	dialog.style.zIndex = "1200";
 
-    dialog.innerHTML = `
+	dialog.innerHTML = `
         <div class="af-modal-header"><h3>Token Generated Successfully</h3></div>
         <div class="af-modal-body">
             <p style="font-size: 13px; margin-bottom: 15px;">Copy this secret now. It will <strong>never</strong> be shown again.</p>
@@ -136,17 +166,20 @@ function showSecretToken(plainToken) {
         </div>
     `;
 
-    document.body.appendChild(dialog);
-    dialog.showModal();
+	document.body.appendChild(dialog);
+	dialog.showModal();
 
-    const closeBtn = dialog.querySelector('#secret-close');
-    const copyBtn = dialog.querySelector('#copy-token-btn');
+	const closeBtn = dialog.querySelector("#secret-close");
+	const copyBtn = dialog.querySelector("#copy-token-btn");
 
-    copyBtn.onclick = async () => {
-        await navigator.clipboard.writeText(plainToken);
-        copyBtn.textContent = '✅ Copied!';
-        copyBtn.classList.replace('btn-primary', 'btn-success');
-    };
+	copyBtn.onclick = async () => {
+		await copyToClipboard(plainToken);
+		copyBtn.textContent = "✅ Copied!";
+		copyBtn.classList.replace("btn-primary", "btn-success");
+	};
 
-    closeBtn.onclick = () => { dialog.close(); dialog.remove(); };
+	closeBtn.onclick = () => {
+		dialog.close();
+		dialog.remove();
+	};
 }

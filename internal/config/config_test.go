@@ -74,3 +74,40 @@ func TestConfig_LoadEnvErrors(t *testing.T) {
 		}
 	})
 }
+
+func TestFinalize_JwtSecret(t *testing.T) {
+	base := func() *Config {
+		c := NewConfig()
+		c.Server.JwtSecret = "a-perfectly-fine-random-secret-over-32-chars"
+		return c
+	}
+
+	t.Run("valid secret passes", func(t *testing.T) {
+		assert.NoError(t, base().Finalize())
+	})
+
+	t.Run("example placeholder is rejected", func(t *testing.T) {
+		c := base()
+		c.Server.JwtSecret = placeholderJwtSecret
+		err := c.Finalize()
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "placeholder")
+	})
+
+	t.Run("too-short secret is rejected", func(t *testing.T) {
+		c := base()
+		c.Server.JwtSecret = "short"
+		assert.Error(t, c.Finalize())
+	})
+
+	t.Run("the shipped example config would not start as-is", func(t *testing.T) {
+		// Guards against config.example.yml drifting away from the constant the
+		// guard checks: if someone edits the example secret, this fails until the
+		// constant is updated to match, keeping the "example never boots" promise.
+		c := base()
+		if err := c.LoadYAML("../../config.example.yml"); err != nil {
+			t.Skipf("example config not found: %v", err)
+		}
+		assert.Error(t, c.Finalize(), "config.example.yml must not boot unmodified")
+	})
+}

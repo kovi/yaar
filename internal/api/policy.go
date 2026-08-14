@@ -2,14 +2,14 @@ package api
 
 import (
 	"path/filepath"
+	"strings"
 
 	"github.com/kovi/yaar/internal/auth"
-	"github.com/sirupsen/logrus"
 )
 
 type ModifyOptions struct {
-	IgnoreProtected bool // Used for uploads (allow new files in protected dirs)
-	IsUpload        bool // Specifically for checking if file exists for overwrite
+	IsNewFile bool // Used for uploads (allow new files in protected dirs)
+	IsUpload  bool // Specifically for checking if file exists for overwrite
 }
 
 // CanModify checks if a path is eligible for changes based on config and DB policy.
@@ -66,8 +66,7 @@ func (h *Handler) CanModify(urlPath string, allowedPaths []string, opts ModifyOp
 
 		// A. Check Configuration Protection (YAML)
 		// Rule: If a directory is protected, we allow new uploads but block delete/overwrite.
-		logrus.Infof("ignore:%v p:%v isprotected:%v", opts.IgnoreProtected, p, h.Config.IsProtected(p))
-		if !opts.IgnoreProtected && h.Config.IsProtected(p) {
+		if !opts.IsNewFile && h.Config.IsProtected(p) {
 			return false, "Action prohibited: " + p + " is a protected directory."
 		}
 
@@ -77,6 +76,31 @@ func (h *Handler) CanModify(urlPath string, allowedPaths []string, opts ModifyOp
 			if m.Immutable != nil && *m.Immutable {
 				return false, "Action prohibited: " + p + " is immutable (locked)."
 			}
+		}
+	}
+
+	return true, ""
+}
+
+// canDeleteChildren verifies that no descendant of targetPath is protected (via
+// config) or immutable (via DB). Call this before any recursive removal to
+// catch constraints that CanModify misses because it only walks ancestors.
+//
+// affected must be the pre-loaded slice of all DB resources at or under targetPath.
+func (h *Handler) canDeleteChildren(targetPath string, affected []MetaResource) (bool, string) {
+	// 1. Config-protected paths: check if any protected_paths entry is equal to
+	//    or lives inside the deletion target.
+	prefix := targetPath + "/"
+	for _, p := range h.Config.Storage.ProtectedPaths {
+		if p == targetPath || strings.HasPrefix(p, prefix) {
+			return false, "Action prohibited: " + p + " is a protected directory."
+		}
+	}
+
+	// 2. DB immutability: any affected resource that is locked blocks the whole delete.
+	for _, r := range affected {
+		if r.Immutable != nil && *r.Immutable {
+			return false, "Action prohibited: " + r.Path + " is immutable (locked)."
 		}
 	}
 

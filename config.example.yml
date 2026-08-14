@@ -1,0 +1,15 @@
+# Copy this file to config.yml and set a real jwt_secret before running.
+#
+#   cp config.example.yml config.yml
+#   # then replace the placeholder below with 32+ random characters, e.g.
+#   #   openssl rand -base64 48
+#
+# config.yml is gitignored: the JWT secret signs every session token, so a
+# committed or shared secret lets anyone forge admin tokens. The server refuses
+# to start while jwt_secret is still the placeholder value below.
+server:
+  jwt_secret: CHANGE_ME_TO_A_RANDOM_32_CHAR_MINIMUM_SECRET
+
+storage:
+  protected_paths:
+    - /protected

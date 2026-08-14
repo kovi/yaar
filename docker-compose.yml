@@ -4,11 +4,16 @@ services:
     image: yaar:experimental
     ports:
       - 8889:8080
+    # The JWT secret signs every session token. Set it here (or in a .env file
+    # next to this compose file) to a long random value — e.g.
+    #   echo "JWT_SECRET=$(openssl rand -base64 48)" > .env
+    # The server refuses to start without one.
+    environment:
+      - JWT_SECRET=${JWT_SECRET:?set JWT_SECRET (e.g. `openssl rand -base64 48`) before starting}
     command:
-      - -dir=/data
+      - -data-dir=/data
       - -db=/config/artifactory.db
       - -audit-log=/config/audit.log
-      - -config=/config/config.yml
     volumes:
       - ./data:/data
       - ./config:/config

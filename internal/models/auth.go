@@ -7,11 +7,15 @@ import (
 )
 
 type Token struct {
-	ID           uint       `gorm:"primaryKey"`
-	UserID       uint       `gorm:"index"`
-	User         User       `gorm:"constraint:OnDelete:CASCADE"`
-	Name         string     `gorm:"not null"`                       // Name for the CI/CD job (e.g. "Jenkins-App-A")
-	SecretHash   string     `gorm:"uniqueIndex"`                    // The hashed token
+	ID     uint   `gorm:"primaryKey"`
+	UserID uint   `gorm:"index"`
+	User   User   `gorm:"constraint:OnDelete:CASCADE"`
+	Name   string `gorm:"not null"` // Name for the CI/CD job (e.g. "Jenkins-App-A")
+	// The hashed token. json:"-" because ListTokens serializes this struct
+	// straight to the client: without it every user reads their own token
+	// hashes and an admin reads everyone's. The hash is not directly
+	// replayable, but it is secret material with no reason to leave the server.
+	SecretHash   string     `gorm:"uniqueIndex" json:"-"`
 	AllowedPaths StringList `gorm:"type:text" json:"allowed_paths"` // Stores as ["/a", "/b"]
 	LastUsedAt   *time.Time `json:"last_used_at"`
 	ExpiresAt    *time.Time `json:"expires_at"`

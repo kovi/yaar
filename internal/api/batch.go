@@ -10,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/kovi/yaar/internal/models"
+	"github.com/sirupsen/logrus"
 )
 
 // internal/api/utils.go
@@ -54,7 +55,6 @@ func (h *Handler) HandleBatchDownload(c *gin.Context) {
 	}
 
 	mode := models.BatchModeLiteral
-	modeSet := false
 	if mParam := c.Query("mode"); mParam != "" {
 		overrideMode, err := models.ParseBatchMode(mParam)
 		if err != nil {
@@ -63,95 +63,156 @@ func (h *Handler) HandleBatchDownload(c *gin.Context) {
 			return
 		}
 		mode = overrideMode
-		modeSet = true
 	}
 
-	// 1. Deduplicate & Clean Paths
+	// Deduplicate & Clean Paths
+	type selectedPath struct {
+		logical  string
+		diskPath string
+	}
 	pathMap := make(map[string]bool)
-	var paths []string
+	var paths []selectedPath
 	for _, p := range rawPaths {
-		cleaned := filepath.Clean(p)
+		cleaned := filepath.Clean("/" + p) // anchor to root first
+		if !strings.HasPrefix(cleaned, "/") {
+			c.JSON(400, gin.H{"error": "Invalid path"})
+			return
+		}
+		fullDiskPath := filepath.Join(h.BaseDir, cleaned)
+		if !strings.HasPrefix(fullDiskPath, h.BaseDir+string(os.PathSeparator)) {
+			c.JSON(400, gin.H{"error": "Path escapes base directory"})
+			return
+		}
 		if !pathMap[cleaned] {
 			pathMap[cleaned] = true
-			paths = append(paths, cleaned)
+			paths = append(paths, selectedPath{logical: cleaned, diskPath: fullDiskPath})
 		}
 	}
 
-	// 2. Determine Common Parent and ZIP Filename
-	commonParent := findCommonParent(paths)
-	zipName := filepath.Base(commonParent)
-	if zipName == "." || zipName == "/" {
+	// Determine ZIP Filename
+	var zipName string
+	if nameParam := c.Query("name"); nameParam != "" {
+		zipName = filepath.Base(nameParam) // filepath.Base sanitizes path traversal attempts
+	} else if len(paths) == 1 {
+		zipName = filepath.Base(paths[0].logical)
+	} else {
+		logicalPaths := make([]string, len(paths))
+		for i, sp := range paths {
+			logicalPaths[i] = sp.logical
+		}
+		zipName = filepath.Base(findCommonParent(logicalPaths))
+	}
+	if zipName == "." || zipName == "/" || zipName == "" {
 		zipName = "artifactory_root"
 	}
 
-	// 3. Fetch Mode from Common Parent Metadata
-	if !modeSet {
-		var parentMeta MetaResource
-		if err := h.DB.Where("path = ?", commonParent).Limit(1).Find(&parentMeta).Error; err == nil {
-			if parentMeta.DownloadMode.IsValid() {
-				mode = parentMeta.DownloadMode
-			}
-		}
-	}
-
-	// 4. Setup Stream
+	// Setup Stream
 	c.Header("Content-Type", "application/zip")
-	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s.zip", zipName))
+	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.zip"`, zipName))
 
 	zipWriter := zip.NewWriter(c.Writer)
 	defer zipWriter.Close()
 
-	// Track entries already added to ZIP (e.g. if user selected a folder AND a file inside it)
-	zipEntries := make(map[string]bool)
+	// zipCandidate holds the metadata needed to write one file into the archive.
+	type zipCandidate struct {
+		diskPath string
+		zipName  string
+		info     os.FileInfo
+	}
 
-	for _, selectedPath := range paths {
-		fullDiskPath := filepath.Join(h.BaseDir, selectedPath)
+	// First pass: collect all candidates without opening file contents.
+	// physicalSeen prevents the same disk file appearing twice (e.g. user selected
+	// a folder AND a file inside it).
+	var candidates []zipCandidate
+	physicalSeen := make(map[string]bool)
 
-		filepath.WalkDir(fullDiskPath, func(path string, d os.DirEntry, err error) error {
+	for _, sp := range paths {
+		err := filepath.WalkDir(sp.diskPath, func(path string, d os.DirEntry, err error) error {
 			if err != nil || d.IsDir() {
 				return err
 			}
 
-			// Get path relative to the selection for internal naming
-			relToSelection, _ := filepath.Rel(fullDiskPath, path)
+			relToSelection, _ := filepath.Rel(sp.diskPath, path)
 
 			var zipEntryName string
 			if mode == models.BatchModeMerge {
 				if relToSelection == "." {
-					// If the selected path was a file, relToSelection is ".".
-					// We want the actual filename in the ZIP root.
+					// selected path was a single file
 					zipEntryName = filepath.Base(path)
 				} else {
-					// If it was a folder, relToSelection is "sub/file.txt".
-					// We keep that structure but flattened relative to the folder.
 					zipEntryName = relToSelection
 				}
 			} else {
-				// Literal: Keep the name of the selection + relative path
-				// filepath.Join handles the "." automatically (it ignores it)
-				zipEntryName = filepath.Join(filepath.Base(selectedPath), relToSelection)
+				zipEntryName = filepath.Join(filepath.Base(sp.logical), relToSelection)
 			}
 
-			// DEDUPLICATION: Don't add the same physical file twice to the ZIP
-			if zipEntries[path] {
+			zipEntryName = filepath.ToSlash(filepath.Clean("/" + zipEntryName))
+			zipEntryName = strings.TrimPrefix(zipEntryName, "/")
+
+			if physicalSeen[path] {
 				return nil
 			}
-			zipEntries[path] = true
+			physicalSeen[path] = true
 
-			// Write to ZIP
-			f, err := os.Open(path)
-			if err != nil {
-				return nil
-			}
-			defer f.Close()
-
-			w, err := zipWriter.Create(filepath.ToSlash(zipEntryName))
+			info, err := d.Info()
 			if err != nil {
 				return err
 			}
-
-			io.Copy(w, f)
+			candidates = append(candidates, zipCandidate{diskPath: path, zipName: zipEntryName, info: info})
 			return nil
 		})
+
+		if err != nil {
+			logrus.WithError(err).Errorf("error in walkdir for %s", sp.diskPath)
+			zipWriter.SetComment("INCOMPLETE: archive generation failed: " + err.Error())
+			return
+		}
+	}
+
+	// In merge mode, when multiple files resolve to the same zip entry name,
+	// keep the last one by request order (later selection wins).
+	var mergeWinner map[string]int
+	if mode == models.BatchModeMerge {
+		mergeWinner = make(map[string]int, len(candidates))
+		for i, c := range candidates {
+			mergeWinner[c.zipName] = i
+		}
+	}
+
+	// Second pass: write candidates to the archive.
+	for i, cand := range candidates {
+		if mode == models.BatchModeMerge && mergeWinner[cand.zipName] != i {
+			continue
+		}
+
+		f, err := os.Open(cand.diskPath)
+		if err != nil {
+			logrus.WithError(err).Errorf("failed to open file for zip: %s", cand.diskPath)
+			zipWriter.SetComment("INCOMPLETE: archive generation failed: " + err.Error())
+			return
+		}
+
+		header, err := zip.FileInfoHeader(cand.info)
+		if err != nil {
+			f.Close()
+			zipWriter.SetComment("INCOMPLETE: archive generation failed: " + err.Error())
+			return
+		}
+		header.Name = cand.zipName
+		header.Method = zip.Deflate
+
+		w, err := zipWriter.CreateHeader(header)
+		if err != nil {
+			f.Close()
+			zipWriter.SetComment("INCOMPLETE: archive generation failed: " + err.Error())
+			return
+		}
+
+		_, err = io.Copy(w, f)
+		f.Close()
+		if err != nil {
+			zipWriter.SetComment("INCOMPLETE: archive generation failed: " + err.Error())
+			return
+		}
 	}
 }

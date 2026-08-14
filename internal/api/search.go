@@ -30,7 +30,9 @@ func (h *Handler) Search(c *gin.Context) {
 	// 1. Query MetaResources with Tags preloaded
 	var resources []MetaResource
 	h.DB.Preload("Tags").
-		Where("path LIKE ? OR stream LIKE ? OR `group` LIKE ?",
+		Joins("Group").
+		Joins("Group.Stream").
+		Where("meta_resources.path LIKE ? OR `Group__Stream`.name LIKE ? OR `Group`.name LIKE ?",
 			searchPattern, searchPattern, searchPattern).
 		Limit(10).Find(&resources)
 
@@ -39,11 +41,12 @@ func (h *Handler) Search(c *gin.Context) {
 	rtags := h.DB.
 		Joins("Resource").
 		Preload("Resource.Tags").
+		Preload("Resource.Group.Stream").
 		Where("key LIKE ? OR value LIKE ?", searchPattern, searchPattern).
 		Limit(10).Find(&matchedTags)
 
 	if rtags.Error != nil {
-		log := logger(c)
+		log := h.log(c)
 		log.WithError(rtags.Error).Info("tag search failed")
 		c.JSON(500, map[string]any{"error": "query failed"})
 		return
@@ -64,11 +67,9 @@ func (h *Handler) Search(c *gin.Context) {
 			Path:   r.Path,
 			Reason: reason,
 		}
-		if r.Stream != nil {
-			res.Stream = *r.Stream
-		}
 		if r.Group != nil {
-			res.Group = *r.Group
+			res.Stream = r.Group.Stream.Name
+			res.Group = r.Group.Name
 		}
 
 		for _, t := range r.Tags {

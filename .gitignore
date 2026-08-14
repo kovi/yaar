@@ -1,9 +1,30 @@
+# Build outputs — never commit binaries; a stale checked-in build diverges from
+# source and misleads anyone testing against it.
 yaar
+gentree
 output
 triggered
 test.tmp
-e2e/suite-*
+# Scratch dirs created by the Go integration suite (one per run)
+integration/suite-*
+# Browser e2e suite: virtualenv and per-run server workdir
+e2e/venv
+e2e/test-workdir
+e2e/__pycache__
 artifactory.db*
+# Scratch databases left behind by failed migrations
+migrate-error.db*
+db-migrate-error-*/
 audit.log
 storage
 staging
+# The real config carries the JWT secret and must never be committed. It used to
+# be tracked with a hardcoded secret, which let anyone with the repo forge admin
+# tokens against any deployment using it. Ship config.example.yml instead.
+config.yml
+*.pyc
+*.db-shm
+*.db-wal
+test-workdir
+artifactory-demo
+web/tools/biome

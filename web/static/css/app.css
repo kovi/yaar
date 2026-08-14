@@ -1,4 +1,12 @@
-/* Base styling for the navbar identity */
+/* App layout */
+#app {
+    max-width: 1200px;
+    margin: 20px auto;
+    padding: 0 20px;
+}
+
+
+/* --- Navbar Status Indicator --- */
 .af-status-indicator {
     display: flex;
     align-items: center;
@@ -16,7 +24,6 @@
     background: var(--bg-alt);
 }
 
-/* The Dot */
 .af-status-indicator::before {
     content: '';
     width: 8px;
@@ -26,34 +33,27 @@
     transition: all 0.2s ease;
 }
 
-/* --- GUEST STATE (Inactive) --- */
 .af-status-guest {
     color: var(--text-muted);
 }
 
 .af-status-guest::before {
     border: 1.5px solid var(--border);
-    /* Hollow dot */
     background: transparent;
 }
 
-/* --- LOGGED-IN STATE (Active) --- */
 .af-status-user {
     font-weight: 500;
 }
 
 .af-status-user::before {
     background: var(--primary);
-    /* Solid blue dot */
     border: 1.5px solid var(--primary);
     box-shadow: 0 0 0 2px rgba(33, 150, 243, 0.1);
-    /* Subtle "glow" */
 }
 
-/* Admin variation */
 .af-status-admin::before {
     background: #9c27b0;
-    /* Purple dot for Admin */
     border-color: #9c27b0;
 }
 
@@ -64,123 +64,551 @@
     margin-left: -2px;
 }
 
-/* File Browser Specifics */
-.af-file-indent {
-    padding-left: 32px !important;
+
+/* --- User Menu --- */
+.af-user-menu-container {
+    position: relative;
+    display: inline-block;
 }
 
-.af-col-mono {
-    font-family: ui-monospace, monospace;
-    font-size: 12px;
-}
 
-/* Search Dropdown Specifics */
-.af-search-dropdown {
-    top: calc(100% + 5px);
-    left: 0;
-    right: 0;
-}
-
-.af-search-meta {
+/* --- Notifications --- */
+.af-badge-notification {
+    position: absolute;
+    top: 0px;
+    right: 0px;
+    background-color: var(--danger);
+    color: white;
+    font-size: 10px;
+    font-weight: 700;
+    border-radius: 50%;
+    width: 16px;
+    height: 16px;
     display: flex;
-    gap: 4px;
-    margin-top: 4px;
+    align-items: center;
+    justify-content: center;
+    border: 2px solid var(--bg-main);
 }
 
-/* Transfer Widget Specifics */
-.af-transfer-widget {
+.af-notification-dropdown {
+    position: absolute;
+    top: 40px;
+    right: 0;
+    width: 320px;
+    background-color: var(--bg-main);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    z-index: 1000;
+    overflow: hidden;
+}
+
+.af-notification-header {
+    background-color: var(--bg-alt);
+    padding: 10px 14px;
+    font-weight: 600;
+    font-size: 13px;
+    border-bottom: 1px solid var(--border);
+}
+
+.af-notification-item {
+    position: relative;
+    padding: 12px 32px 12px 14px;
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.af-notification-dismiss {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    line-height: 18px;
+    text-align: center;
+    font-size: 16px;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+}
+
+.af-notification-dismiss:hover {
+    background: var(--border);
+    color: var(--text-main);
+}
+
+.af-notification-dismiss:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.af-notification-path {
+    font-family: monospace;
+    font-size: 11px;
+    color: var(--text-main);
+    margin-bottom: 4px;
+    word-break: break-all;
+}
+
+.af-notification-item:last-child {
+    border-bottom: none;
+}
+
+.af-notification-item:hover {
+    background-color: var(--bg-alt);
+}
+
+.af-notification-title {
+    font-weight: 600;
+    margin-bottom: 4px;
+    color: var(--danger);
+}
+
+.af-notification-desc {
+    color: var(--text-muted);
+}
+
+
+/* --- File Browser --- */
+.af-file-indent {
+    padding-left: 32px;
+}
+
+.af-file-icon {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    line-height: 1;
+}
+
+.af-back-row {
+    background-color: var(--bg-alt);
+    border-bottom: 1px solid var(--border);
+    height: 32px;
+}
+
+.af-back-row .af-file-icon {
+    color: var(--text-muted);
+    opacity: 0.6;
+    transition: all 0.2s ease;
+}
+
+.af-back-row:hover .af-file-icon {
+    color: var(--primary);
+    opacity: 1;
+    transform: translate(-50%, calc(-50% - 1px));
+}
+
+.af-back-row:hover .af-icon-primary {
+    color: var(--primary-hover);
+}
+
+.af-file-row {
+    transition: background-color 0.1s;
+}
+
+.af-file-row:hover {
+    background-color: #f0f7ff;
+}
+
+.af-file-wrapper {
+    display: flex;
+    align-items: center;
+}
+
+.af-file-link {
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    color: var(--text-main);
+    cursor: pointer;
+}
+
+.af-file-link:hover .af-file-text {
+    text-decoration: underline;
+    color: var(--primary);
+}
+
+/* The row action menu is revealed on hover to keep the table quiet at rest.
+   `opacity: 0` alone left the trigger clickable and focusable while invisible,
+   so a keyboard user tabbed onto a control they could not see. It stays hidden
+   but is revealed whenever it is hovered, focused, or open. */
+.af-file-row .af-row-actions {
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+
+.af-file-row:hover .af-row-actions,
+.af-file-row:focus-within .af-row-actions,
+.af-file-row:has(.af-dropdown:not(.hidden)) .af-row-actions {
+    opacity: 1;
+}
+
+/* Any input that cannot hover (touch, pen) never triggers the reveal above, so
+   the menu would be permanently invisible on a phone or tablet. There, show it
+   unconditionally rather than depending on a hover that never arrives. */
+@media (hover: none) {
+    .af-file-row .af-row-actions {
+        opacity: 1;
+    }
+}
+
+/* Keyboard focus must be visible on its own terms: the row reveal above only
+   changes opacity, which does not indicate *which* control is focused. */
+.af-file-row .af-menu-trigger:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: -2px;
+    border-radius: var(--radius);
+}
+
+.af-group-header-cell {
+    padding: 10px 12px;
+    vertical-align: middle;
+}
+
+.af-table-grouped .af-file-indent {
+    padding-left: 32px;
+}
+
+
+/* --- File Row Selection --- */
+.af-selection-checkbox-wrapper {
+    display: none;
+    position: absolute;
+    inset: 0;
+}
+
+.af-selection-checkbox {
+    width: 13px;
+    height: 13px;
+    margin: 0;
+    cursor: pointer;
+}
+
+/* Overlay checkbox: centered inside the icon container */
+.af-selection-checkbox-wrapper .af-selection-checkbox {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+}
+
+/* Row hover: show semi-transparent checkbox over the icon */
+.af-table-selectable .af-file-row:hover .af-selection-checkbox-wrapper {
+    display: block;
+}
+
+.af-table-selectable .af-file-row:hover .af-selection-checkbox {
+    opacity: 0.6;
+}
+
+/* Hovering directly over the icon column: full opacity */
+.af-table-selectable .af-file-row:hover .af-file-icon-container:hover .af-selection-checkbox {
+    opacity: 1;
+}
+
+/* Selected row: hide icon, show checkbox */
+.af-table-selectable .af-file-row.is-selected .af-file-icon {
+    display: none;
+}
+
+.af-table-selectable .af-file-row.is-selected .af-selection-checkbox-wrapper {
+    display: flex;
+}
+
+.af-file-row.is-selected {
+    background-color: var(--success-bg);
+}
+
+.af-file-row.is-selected:hover {
+    background-color: #d0ead1;
+}
+
+.af-selection-active {
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.af-hidden-perms {
+    display: none;
+}
+
+
+/* --- Batch Action Bar --- */
+.af-batch-bar {
     position: fixed;
     bottom: 20px;
-    right: 20px;
-    width: 320px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--text-main);
+    color: white;
+    padding: 12px 24px;
+    border-radius: 40px;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+    z-index: 9000;
+    transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
 }
 
-.af-transfer-path {
+.af-batch-bar.hidden {
+    transform: translateX(-50%) translateY(100px);
+}
+
+.af-batch-count {
+    font-weight: 700;
+    font-size: 14px;
+    border-right: 1px solid rgba(255, 255, 255, 0.2);
+    padding-right: 15px;
+}
+
+
+/* --- Highlight / Locate Row --- */
+.af-highlight-row {
+    background-color: rgba(33, 150, 243, 0.15);
+    outline: 2px solid var(--primary);
+    outline-offset: -2px;
+    position: relative;
+    z-index: 1;
+    animation: af-highlight-fade 3s forwards;
+}
+
+.af-highlight-row td:first-child {
+    border-left: 4px solid var(--primary);
+}
+
+@keyframes af-highlight-fade {
+    0% { background-color: rgba(33, 150, 243, 0.25); }
+    70% { background-color: rgba(33, 150, 243, 0.15); }
+    100% { background-color: transparent; outline-color: transparent; }
+}
+
+.af-locate-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2px 6px;
+    border-radius: 4px;
     font-size: 10px;
     color: var(--text-muted);
-    display: block;
+    background: var(--bg-alt);
+    border: 1px solid var(--border);
+    text-decoration: none;
+    margin-left: 8px;
+    opacity: 0;
+    transition: all 0.2s ease;
+}
+
+.af-file-row:hover .af-locate-btn {
+    opacity: 1;
+}
+
+.af-locate-btn:hover {
+    color: var(--primary);
+    border-color: var(--primary);
+    background: #fff;
+}
+
+.af-locate-btn svg {
+    margin-right: 4px;
+}
+
+
+/* --- Extras Column --- */
+.af-extras-col {
+    text-align: right;
+    padding-right: 6px;
+}
+
+.af-extras-eye {
+    font-size: 13px;
+    padding: 2px 6px;
+    min-height: unset;
+    height: 22px;
+    opacity: 0.4;
+    transition: opacity 0.15s;
+}
+
+.af-extras-eye:hover,
+.af-extras-eye.active {
+    opacity: 1;
+}
+
+.extras-cell {
+    width: 1px;
+    white-space: nowrap;
+    vertical-align: middle;
+    padding: 4px 6px 4px 0;
+}
+
+.af-table.af-extras-expanded .extras-cell {
+    width: 240px;
+    white-space: normal;
+}
+
+.af-extras-inner {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 3px;
+    align-items: center;
+    cursor: pointer;
+}
+
+.af-table.af-extras-expanded .af-extras-inner {
+    flex-wrap: wrap;
+}
+
+.af-extras-inner:empty {
+    cursor: default;
+}
+
+.af-extras-badge {
+    display: inline-block;
+    max-width: 75px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    vertical-align: middle;
 }
 
-/* Config Viewer in Settings */
-.af-config-viewer {
-    background: #1e1e1e;
-    /* Dark theme */
-    color: #d4d4d4;
-    padding: 12px;
-    border-radius: var(--radius);
-    font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-    font-size: 12px;
+.af-table.af-extras-expanded .af-extras-badge {
+    max-width: none;
+    white-space: normal;
+}
+
+.af-tag-overflow {
+    display: none;
+}
+
+.af-table.af-extras-expanded .af-tag-overflow {
+    display: inline-block;
+}
+
+.af-extras-more {
+    font-size: 10px;
+    color: var(--text-muted);
+    background: var(--bg-alt);
     border: 1px solid var(--border);
-
-    /* THE FIX: Full width logic */
-    width: 100%;
-    /* Occupy full parent width */
-    box-sizing: border-box;
-    /* Include padding/border in the 100% calculation */
-    display: block;
-    /* Ensure it's not inline */
-
-    /* Scroll behavior */
-    overflow-x: auto;
-    /* Horizontal scroll for long lines */
-    margin-top: 8px;
+    border-radius: 3px;
+    padding: 1px 4px;
 }
 
-.af-config-viewer pre {
-    margin: 0;
-    white-space: pre;
-    /* Keep formatting from JSON.stringify */
-    word-wrap: normal;
-    /* Don't wrap lines, use the scrollbar instead */
+.af-table.af-extras-expanded .af-extras-more {
+    display: none;
 }
 
-.af-action-banner {
+/* --- Extras Popover --- */
+.af-extras-popover {
+    position: fixed;
+    background: var(--bg-main);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+    padding: 10px 12px;
+    z-index: 2000;
+    min-width: 180px;
+    max-width: 320px;
+    font-size: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.af-extras-popover-section {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.af-extras-popover-label {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.af-extras-popover-value {
+    user-select: all;
+    font-family: ui-monospace, monospace;
+    word-break: break-all;
+    color: var(--text-main);
+    line-height: 1.4;
+}
+
+/* --- Metadata & Status Badges --- */
+.af-attr-row {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    padding: 10px 15px;
-    background-color: var(--bg-alt);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    margin-bottom: 24px;
-    /* Space before the info group starts */
+    gap: 4px;
+    flex-wrap: wrap;
+    margin-top: 2px;
+    pointer-events: auto;
 }
 
-.af-action-banner-text {
-    font-size: 12px;
+.badge-tag {
+    font-size: 10px;
+    padding: 1px 4px;
+    background: var(--bg-alt);
+    border: 1px solid var(--border);
+    border-radius: 3px;
     color: var(--text-muted);
 }
 
-.af-select {
-    padding: 8px 12px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    background: var(--bg-main);
-    width: 100%;
+.expiry-info {
+    font-size: 11px;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    color: var(--text-muted);
 }
 
-/* Warning styling for the secret reveal */
-.af-token-warning {
-    color: #856404;
-    background-color: #fffbe6;
-    border: 1px solid #ffe58f;
-    padding: 10px;
-    border-radius: var(--radius);
+.expiry-warning {
+    color: var(--warning);
+    font-weight: 600;
+}
+
+.expiry-critical {
+    color: var(--danger);
+    font-weight: 700;
+}
+
+.badge-origin {
+    font-size: 10px;
+    padding: 1px 5px;
+    background: #f0f0f0;
+    color: #555;
+    border-radius: 4px;
+    font-weight: 600;
+}
+
+.badge-stream {
+    border-left: 3px solid var(--primary);
+}
+
+.badge-group {
+    border-left: 3px solid #9c27b0;
+}
+
+.lock-icon {
     font-size: 12px;
-    margin-bottom: 15px;
+    color: var(--text-muted);
+    margin-left: 4px;
+    cursor: help;
 }
 
-/* Specific Policy Badges */
 .badge-policy-immutable {
     background: #f3e5f5;
     color: #7b1fa2;
     border: 1px solid #d1c4e9;
 }
-
-/* Purple */
 
 .badge-policy-protected {
     background: #fff3e0;
@@ -188,41 +616,107 @@
     border: 1px solid #ffe0b2;
 }
 
-/* Orange */
-
 .badge-policy-restricted {
     background: #ffebee;
     color: #c62828;
     border: 1px solid #ffcdd2;
 }
 
-/* Red */
-
-/* A tiny dot next to the filename if it has any restriction */
-.af-policy-indicator {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--text-muted);
-    display: inline-block;
-    margin-left: 6px;
-    opacity: 0.3;
+.af-icon-restricted {
+    opacity: 0.4;
+    filter: grayscale(1);
 }
 
-/* Color code the indicator based on severity */
-.af-policy-indicator.restricted {
-    background: var(--danger);
-    opacity: 0.5;
+.af-icon-protected {
+    opacity: 0.6;
+    filter: grayscale(0.5);
 }
 
-.af-policy-indicator.protected {
-    background: var(--warning);
-    opacity: 0.5;
+
+/* --- Hash Display --- */
+.af-hash-row {
+    margin-bottom: 12px;
 }
 
+.af-hash-row label {
+    display: block;
+    font-size: 11px;
+    font-weight: 600;
+    margin-bottom: 4px;
+}
+
+.af-hash-box {
+    display: flex;
+    align-items: center;
+    background: var(--bg-alt);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 4px 8px;
+    gap: 8px;
+}
+
+.af-hash-box code {
+    flex: 1;
+    font-size: 12px;
+    word-break: break-all;
+    color: var(--text-main);
+    user-select: all;
+    overflow-x: auto;
+}
+
+.copy-btn {
+    padding: 4px 8px;
+    font-size: 14px;
+}
+
+.btn-success {
+    color: var(--success);
+    border-color: var(--success);
+}
+
+
+/* --- Info & Version Panel --- */
+.af-info-group {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.af-version-card {
+    background: var(--bg-alt);
+    margin-bottom: 24px;
+    padding: 16px;
+    border-color: var(--border);
+}
+
+#ver-commit {
+    display: block;
+    word-break: break-all;
+    background: transparent;
+    padding: 0;
+}
+
+.af-version-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.af-ver-text {
+    font-weight: 600;
+    font-size: 14px;
+}
+
+#ver-date {
+    font-size: 12px;
+    color: var(--text-main);
+}
+
+
+/* --- Search Dropdown --- */
 .af-search-dropdown {
     position: absolute;
-    top: 100%;
+    top: calc(100% + 5px);
     left: 0;
     right: 0;
     background: var(--bg-main);
@@ -238,7 +732,7 @@
 .af-search-item {
     display: flex;
     align-items: center;
-    padding: 10px 15px;
+    padding: 12px 15px;
     cursor: pointer;
     border-bottom: 1px solid var(--bg-alt);
 }
@@ -298,101 +792,405 @@
     margin-top: 2px;
 }
 
-/* Adjust badge sizes specifically for search dropdown */
 .af-search-meta .badge-origin,
 .af-search-meta .badge-tag {
     font-size: 9px;
     padding: 0px 4px;
 }
 
-.af-search-item {
-    padding: 12px 15px;
-    /* Slightly more padding for the two-line layout */
+
+/* --- Transfer Widget --- */
+.af-transfer-widget {
+    position: fixed;
+    bottom: 0px;
+    right: 20px;
+    width: 320px;
+    z-index: 10000;
+    padding: 0;
+    margin-bottom: 0;
 }
 
-.af-batch-bar {
-    position: fixed;
-    bottom: 20px;
-    left: 50%;
-    transform: translateX(-50%);
+.af-transfer-widget .af-card-header {
     background: var(--text-main);
     color: white;
-    padding: 12px 24px;
-    border-radius: 40px;
+    padding: 10px 15px;
+    margin-bottom: 0;
+    border-radius: var(--radius) var(--radius) 0 0;
+}
+
+.af-transfer-list {
+    max-height: 350px;
+    overflow-y: auto;
+    background: var(--bg-main);
+    transition: max-height 0.3s ease;
+}
+
+.af-transfer-list.minimized {
+    max-height: 0;
+}
+
+.af-transfer-item {
+    padding: 12px 15px;
+    border-bottom: 1px solid var(--border);
+}
+
+.af-transfer-item:last-child {
+    border-bottom: none;
+}
+
+.af-transfer-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+}
+
+.af-transfer-path {
+    font-size: 10px;
+    color: var(--text-muted);
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 240px;
+    margin-top: 2px;
+    cursor: help;
+}
+
+.af-transfer-item:hover .af-transfer-path {
+    color: var(--text-main);
+}
+
+.af-transfer-item.status-error .file-name {
+    color: var(--danger);
+    text-decoration: underline dotted;
+}
+
+.status-completed .af-progress-fill {
+    background: var(--success);
+}
+
+.status-error .af-progress-fill {
+    background: var(--danger);
+}
+
+.status-cancelled .af-progress-fill {
+    background: var(--text-muted);
+}
+
+
+/* --- Upload Dialog --- */
+.af-upload-grid {
+    display: grid;
+    grid-template-columns: 300px 1fr;
+    gap: 24px;
+}
+
+.af-drop-zone-mini {
+    border: 2px dashed var(--border);
+    border-radius: var(--radius);
+    padding: 15px;
+    text-align: center;
+    font-size: 13px;
+    color: var(--text-muted);
+    cursor: pointer;
+    background: var(--bg-alt);
+    transition: all 0.2s;
+}
+
+.af-drop-zone-mini:hover,
+.af-drop-zone-mini.drag-over {
+    border-color: var(--primary);
+    background: #fff;
+    color: var(--primary);
+}
+
+.remove-file-btn {
+    padding: 0 6px;
+    font-size: 18px;
+    line-height: 1;
+}
+
+@media (min-width: 800px) {
+    #upload-dialog {
+        max-width: 800px;
+    }
+}
+
+@media (max-height: 600px) {
+    .af-upload-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+
+/* --- Config / Code Viewer --- */
+.af-config-viewer {
+    background: #1e1e1e;
+    color: #d4d4d4;
+    padding: 12px;
+    border-radius: var(--radius);
+    font-family: ui-monospace, monospace;
+    font-size: 12px;
+    overflow-x: auto;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.af-config-viewer pre {
+    margin: 0;
+    white-space: pre;
+}
+
+
+/* --- Action Banner --- */
+.af-action-banner {
     display: flex;
     align-items: center;
-    gap: 20px;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.3);
-    z-index: 9000;
-    transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    justify-content: space-between;
+    padding: 10px 15px;
+    background-color: var(--bg-alt);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: 24px;
 }
 
-.af-batch-bar.hidden { transform: translateX(-50%) translateY(100px); }
-
-.af-batch-count {
-    font-weight: 700;
-    font-size: 14px;
-    border-right: 1px solid rgba(255,255,255,0.2);
-    padding-right: 15px;
-}
-.af-selection-column {
-    width: 0;
-    max-width: 0;
-    padding: 0 !important;
-    margin: 0 !important;
-    overflow: hidden;
-    white-space: nowrap;
-    transition: width 0.2s ease, max-width 0.2s ease;
+.af-action-banner-text {
+    font-size: 12px;
+    color: var(--text-muted);
 }
 
-/* The wrapper inside the cell handles the actual expansion */
-.af-selection-wrapper {
-    width: 0;
-    overflow: hidden;
+
+/* --- Select --- */
+.af-select {
+    padding: 8px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg-main);
+    width: 100%;
+}
+
+
+/* --- Token / Secret Warning --- */
+.af-token-warning {
+    color: #856404;
+    background-color: #fffbe6;
+    border: 1px solid #ffe58f;
+    padding: 10px;
+    border-radius: var(--radius);
+    font-size: 12px;
+    margin-bottom: 15px;
+}
+
+
+/* --- Settings Button --- */
+.btn-settings {
+    width: 36px;
+    height: 36px;
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: width 0.2s ease;
+    font-size: 18px;
+    padding: 0;
 }
 
-.af-selection-checkbox {
-    width: 13px;
-    height: 13px;
-    margin: 0;
+
+/* --- File Preview Modal --- */
+.af-modal.af-modal-preview {
+    width: 90vw;
+    height: 90vh;
+    max-width: none;
+    max-height: none;
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+    overflow: hidden;
+}
+
+.af-modal-preview .af-modal-header {
+    background: var(--bg-main);
+    flex-shrink: 0;
+}
+
+.af-modal-preview .af-modal-body {
+    flex: 1;
+    overflow: auto;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background: #000;
+    padding: 0;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+
+/* --- Audit Log Dialog --- */
+.af-audit-dialog {
+    max-width: 95vw;
+    width: 1200px;
+    max-height: 90vh;
+}
+
+.af-audit-toolbar {
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-alt);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
+}
+
+.af-audit-toolbar input[type="search"] {
+    flex: 1;
+    max-width: 360px;
+    padding: 6px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    font-size: 13px;
+    background: var(--bg-main);
+}
+
+.af-audit-warning {
+    font-size: 12px;
+    color: var(--warning);
+    font-weight: 500;
+}
+
+.af-audit-table {
+    table-layout: fixed;
+}
+
+.af-audit-table th:nth-child(1) { width: 148px; }
+.af-audit-table th:nth-child(2) { width: 90px; }
+.af-audit-table th:nth-child(3) { width: 150px; }
+.af-audit-table th:nth-child(4) { width: 22%; }
+.af-audit-table th:nth-child(5) { width: auto; }
+.af-audit-table th:nth-child(6) { width: 90px; }
+.af-audit-table th:nth-child(7) { width: 110px; }
+
+.af-audit-resource,
+.af-audit-detail {
+    font-size: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 0;
+}
+
+.af-audit-resource {
+    font-family: monospace;
+}
+
+.af-audit-detail {
+    color: var(--text-main);
+}
+
+.af-audit-action {
+    font-size: 10px;
+    letter-spacing: 0.3px;
+}
+
+.af-audit-entry-row {
     cursor: pointer;
-    opacity: 0;
-    transform: scale(0.5);
-    transition: opacity 0.2s ease, transform 0.2s ease;
-}
-
-/* --- ACTIVE SELECTION MODE --- */
-
-.af-table-selection-mode .af-selection-column {
-    width: 44px;    /* Final total width */
-    max-width: 44px;
-}
-
-.af-table-selection-mode .af-selection-wrapper {
-    width: 44px;
-}
-
-.af-table-selection-mode .af-selection-checkbox {
-    opacity: 1;
-    transform: scale(1);
-}
-
-/* Ensure the table itself doesn't have border-spacing that adds gaps */
-.af-table {
-    border-spacing: 0;
-    border-collapse: collapse;
-}
-
-/* Visual cue for selected rows */
-.af-file-row.is-selected {
-    background-color: var(--success-bg) !important;
-}
-
-.af-selection-active {
     user-select: none;
-    -webkit-user-select: none; /* Safari support */
+}
+
+.af-audit-entry-row:hover,
+.af-audit-entry-row.af-audit-row-expanded {
+    background: #f5f9ff;
+}
+
+.af-audit-extras-row {
+    display: none;
+}
+
+.af-audit-extras-row.af-audit-extras-open {
+    display: table-row;
+}
+
+.af-audit-extras-row.af-audit-extras-open td {
+    padding: 0;
+    border-bottom: 2px solid var(--primary);
+}
+
+.af-audit-extras {
+    padding: 10px 16px;
+    background: #f5f9ff;
+    font-size: 12px;
+}
+
+.af-audit-extra-row {
+    display: flex;
+    gap: 12px;
+    padding: 2px 0;
+    border-bottom: 1px solid #e8f0fe;
+}
+
+.af-audit-extra-key {
+    color: var(--text-muted);
+    font-weight: 600;
+    min-width: 120px;
+    flex-shrink: 0;
+    font-family: monospace;
+}
+
+.af-audit-extra-val {
+    font-family: monospace;
+    word-break: break-all;
+    color: var(--text-main);
+}
+
+.af-audit-token-name {
+    font-size: 10px;
+    color: var(--text-muted);
+    font-family: monospace;
+}
+
+/* --- Janitor Failures table --- */
+.af-janitor-table {
+    table-layout: fixed;
+    width: 100%;
+}
+
+.af-janitor-table th:nth-child(1) { width: 72px; }   /* Type */
+.af-janitor-table th:nth-child(2) { width: 30%; }    /* Identifier */
+.af-janitor-table th:nth-child(3) { width: 72px; }   /* Attempts */
+.af-janitor-table th:nth-child(4) { width: auto; }   /* Last Error */
+.af-janitor-table th:nth-child(5) { width: 150px; }  /* Next Retry */
+.af-janitor-table th:nth-child(6) { width: 84px; }   /* Actions */
+
+.af-janitor-key,
+.af-janitor-error {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 0;
+}
+
+.af-janitor-key code {
+    font-size: 11px;
+}
+
+.af-janitor-error {
+    color: var(--danger);
+    font-size: 12px;
+}
+
+.af-janitor-table .btn-clear-janitor {
+    white-space: nowrap;
+}
+
+/* Brief highlight when navigating to the Janitor card from a notification */
+.af-flash-highlight {
+    animation: af-flash 1.6s ease-out;
+}
+
+@keyframes af-flash {
+    0%, 30% { box-shadow: 0 0 0 3px var(--danger); }
+    100% { box-shadow: 0 0 0 0 transparent; }
 }

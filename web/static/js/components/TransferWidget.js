@@ -1,6 +1,6 @@
 // static/js/components/TransferWidget.js
 
-const template = document.createElement('template');
+const template = document.createElement("template");
 template.innerHTML = `
     <div id="transfer-container" class="af-transfer-widget af-card hidden">
         <div class="af-card-header">
@@ -11,7 +11,7 @@ template.innerHTML = `
     </div>
 `;
 
-const rowTemplate = document.createElement('template');
+const rowTemplate = document.createElement("template");
 rowTemplate.innerHTML = `
     <div class="af-transfer-item">
         <div class="af-transfer-meta">
@@ -32,66 +32,72 @@ rowTemplate.innerHTML = `
 `;
 
 class TransferWidget {
-    constructor() {
-        const clone = template.content.cloneNode(true);
-        this.container = clone.getElementById('transfer-container');
-        this.list = clone.getElementById('transfer-list');
+	constructor() {
+		const clone = template.content.cloneNode(true);
+		this.container = clone.getElementById("transfer-container");
+		this.list = clone.getElementById("transfer-list");
 
-        // Minimize toggle
-        clone.getElementById('transfer-minimize').onclick = () => {
-            this.list.classList.toggle('minimized');
-        };
+		// Minimize toggle
+		clone.getElementById("transfer-minimize").onclick = () => {
+			this.list.classList.toggle("minimized");
+		};
 
-        document.body.appendChild(clone);
-    }
+		document.body.appendChild(clone);
+	}
 
-    /**
-     * Adds or updates a row in the UI
-     */
-    renderTask(task, onCancel) {
-        this.container.classList.remove('hidden');
+	/**
+	 * Adds or updates a row in the UI
+	 */
+	renderTask(task, onCancel) {
+		this.container.classList.remove("hidden");
 
-        let row = this.list.querySelector(`[data-id="${task.id}"]`);
-        if (!row) {
-            const rowClone = rowTemplate.content.cloneNode(true);
-            row = rowClone.querySelector('.af-transfer-item');
-            row.dataset.id = task.id;
-            this.list.prepend(row); // Newest on top
-        }
+		let row = this.list.querySelector(`[data-id="${task.id}"]`);
+		if (!row) {
+			const rowClone = rowTemplate.content.cloneNode(true);
+			row = rowClone.querySelector(".af-transfer-item");
+			row.dataset.id = task.id;
+			this.list.prepend(row); // Newest on top
+		}
 
-        row.className = `af-transfer-item status-${task.status}`;
-        row.querySelector('.file-name').textContent = task.name;
+		row.className = `af-transfer-item status-${task.status}`;
+		row.querySelector(".file-name").textContent = task.name;
 
-        const time = () => task.finishedAt ? new Date(task.finishedAt).toLocaleString() : 'unknown time';
+		const time = () =>
+			task.finishedAt
+				? new Date(task.finishedAt).toLocaleString()
+				: "unknown time";
 
-        if (task.status === 'error' || task.status === 'cancelled') {
-            const reason = task.errorReason || 'No specific reason provided';
+		if (task.status === "error" || task.status === "cancelled") {
+			const reason = task.errorReason || "No specific reason provided";
 
-            // Combine info into a descriptive tooltip
-            row.title = `Path: ${task.path}\nStatus: ${task.status.toUpperCase()}\nReason: ${reason}\nTime: ${time()}`;
-        } else if (task.status === 'completed') {
-            row.title = `Completed at: ${time()}\nPath: ${task.path}`;
-            row.querySelector('.status-text').textContent = `${task.percent}%`;
-        } else {
-            row.title = `Uploading to: ${task.path}`;
-        }
-        row.querySelector('.af-progress-fill').style.width = `${task.percent}%`;
-        row.querySelector('.status-text').textContent = `${task.percent}%`;
+			// Combine info into a descriptive tooltip
+			row.title = `Path: ${task.path}\nStatus: ${task.status.toUpperCase()}\nReason: ${reason}\nTime: ${time()}`;
+		} else if (task.status === "completed") {
+			row.title = `Completed at: ${time()}\nPath: ${task.path}`;
+			row.querySelector(".status-text").textContent = `${task.percent}%`;
+		} else {
+			row.title = `Uploading to: ${task.path}`;
+		}
+		row.querySelector(".af-progress-fill").style.width = `${task.percent}%`;
+		row.querySelector(".status-text").textContent = `${task.percent}%`;
 
-        const actionBtn = row.querySelector('.action-btn');
+		const actionBtn = row.querySelector(".action-btn");
 
-        if (task.status === 'uploading') {
-            actionBtn.textContent = 'Cancel';
-            actionBtn.onclick = onCancel;
-        } else {
-            actionBtn.textContent = 'Clear';
-            actionBtn.onclick = () => {
-                row.remove();
-                if (this.list.children.length === 0) this.container.classList.add('hidden');
-                window.dispatchEvent(new CustomEvent('transfer:dismiss', { detail: task.id }));
-            };
-        }
-    }
+		if (task.status === "uploading") {
+			actionBtn.textContent = "Cancel";
+			actionBtn.onclick = onCancel;
+		} else {
+			actionBtn.textContent = "Clear";
+			actionBtn.onclick = () => {
+				row.remove();
+				if (this.list.children.length === 0)
+					this.container.classList.add("hidden");
+				window.dispatchEvent(
+					new CustomEvent("transfer:dismiss", { detail: task.id }),
+				);
+			};
+		}
+	}
 }
 
 // Export a single instance (Singleton pattern)

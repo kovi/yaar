@@ -34,6 +34,12 @@ func ParseExpiry(input string) (time.Time, error) {
 		}
 
 		if err == nil {
+
+			// ADD VALIDATION
+			if !t.IsZero() && t.Before(time.Now().Add(-1*time.Minute)) {
+				return time.Time{}, fmt.Errorf("expiry time is in the past")
+			}
+
 			return t, nil
 		}
 	}
@@ -60,17 +66,4 @@ func ParseExpiry(input string) (time.Time, error) {
 	}
 
 	return time.Time{}, fmt.Errorf("invalid expiry format: use duration (7d, 1h) or absolute time (ISO8601)")
-}
-
-func ParseStream(value string) (stream, group string, err error) {
-	if value == "" {
-		return "", "", nil
-	}
-
-	parts := strings.SplitN(value, "/", 2)
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-		return "", "", fmt.Errorf("stream must be in format 'stream/group'")
-	}
-
-	return strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1]), nil
 }

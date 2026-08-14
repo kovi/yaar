@@ -1,7 +1,7 @@
-import { API } from '../api/ApiClient.js';
-import { Auth } from '../api/Auth.js';
+import { API } from "../api/ApiClient.js";
+import { Auth } from "../api/Auth.js";
 
-const template = document.createElement('template');
+const template = document.createElement("template");
 template.innerHTML = `
     <dialog class="af-modal" id="login-dialog">
         <form class="af-form">
@@ -28,27 +28,34 @@ template.innerHTML = `
 `;
 
 export function openLogin() {
-    if (!document.getElementById('login-dialog')) {
-        document.body.appendChild(template.content.cloneNode(true));
-        const dialog = document.getElementById('login-dialog');
-        const form = dialog.querySelector('form');
+	if (!document.getElementById("login-dialog")) {
+		document.body.appendChild(template.content.cloneNode(true));
+		const dialog = document.getElementById("login-dialog");
+		const form = dialog.querySelector("form");
 
-        form.onsubmit = async (e) => {
-            e.preventDefault();
-            const fd = new FormData(form);
-            try {
-                const data = await API.login(Object.fromEntries(fd));
-                Auth.saveSession(data);
-                dialog.close();
-                window.location.reload();
-            } catch (err) {
-                const errBox = dialog.querySelector('#login-error');
-                errBox.textContent = err.message;
-                errBox.classList.remove('hidden');
-            }
-        };
+		form.onsubmit = async (e) => {
+			e.preventDefault();
+			const fd = new FormData(form);
+			try {
+				const data = await API.login(Object.fromEntries(fd));
+				Auth.saveSession(data);
+				dialog.close();
+				sessionStorage.setItem(
+					"af_pending_toast",
+					JSON.stringify({
+						message: `Welcome back, ${data.username}!`,
+						type: "success",
+					}),
+				);
+				window.location.reload();
+			} catch (err) {
+				const errBox = dialog.querySelector("#login-error");
+				errBox.textContent = err.message;
+				errBox.classList.remove("hidden");
+			}
+		};
 
-        dialog.querySelector('.modal-close').onclick = () => dialog.close();
-    }
-    document.getElementById('login-dialog').showModal();
+		dialog.querySelector(".modal-close").onclick = () => dialog.close();
+	}
+	document.getElementById("login-dialog").showModal();
 }

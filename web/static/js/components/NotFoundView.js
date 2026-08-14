@@ -1,17 +1,18 @@
 export function NotFoundView(requestedPath) {
-    console.log("not found", requestedPath)
-    const container = document.createElement('div');
-    container.className = 'af-card';
-    container.style.maxWidth = '600px';
-    container.style.margin = '40px auto';
-    container.style.textAlign = 'center';
+	console.log("not found", requestedPath);
+	const container = document.createElement("div");
+	container.className = "af-card";
+	container.style.maxWidth = "600px";
+	container.style.margin = "40px auto";
+	container.style.textAlign = "center";
 
-    // Calculate parent directory
-    const parts = requestedPath.split('/').filter(p => p);
-    const parentPath = parts.length > 0 ? '/' + parts.slice(0, -1).join('/') : '/';
-    const readablePath = decodeURIComponent(requestedPath);
+	// Calculate parent directory
+	const parts = requestedPath.split("/").filter((p) => p);
+	const parentPath =
+		parts.length > 0 ? `/${parts.slice(0, -1).join("/")}` : "/";
+	const readablePath = decodeURIComponent(requestedPath);
 
-    container.innerHTML = `
+	container.innerHTML = `
         <div style="font-size: 48px; margin-bottom: 20px;">🕵️‍♂️</div>
         <h2 style="margin-bottom: 10px;">Resource Not Found</h2>
         <p class="af-text-muted" style="margin-bottom: 24px;">
@@ -28,5 +29,5 @@ export function NotFoundView(requestedPath) {
         </div>
     `;
 
-    return container;
+	return container;
 }

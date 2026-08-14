@@ -1,8 +1,11 @@
 package auth
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -22,6 +25,25 @@ type AuthHandler struct {
 	Log       *logrus.Entry
 }
 
+// log returns the request-scoped logger when one is available, falling back to
+// the handler's own logger. See the equivalent on api.Handler for the rationale.
+func (h *AuthHandler) log(c *gin.Context) *logrus.Entry {
+	if c != nil {
+		if v, ok := c.Get("logger"); ok {
+			if e, ok := v.(*logrus.Entry); ok {
+				return e
+			}
+		}
+	}
+	return h.Log
+}
+
+func bindJSONStrict(c *gin.Context, obj any) error {
+	decoder := json.NewDecoder(c.Request.Body)
+	decoder.DisallowUnknownFields()
+	return decoder.Decode(obj)
+}
+
 // Login handles POST /_/api/login
 func (h *AuthHandler) Login(c *gin.Context) {
 	var req struct {
@@ -29,21 +51,58 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		Password string `json:"password" binding:"required"`
 	}
 
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(400, gin.H{"error": "Invalid request"})
+	if err := bindJSONStrict(c, &req); err != nil {
+		c.JSON(400, gin.H{"error": "Invalid request: " + err.Error()})
+		return
+	}
+
+	// Throttle per (username, client IP) — see login_throttle.go for why the
+	// pair, and not the username alone, is the key.
+	throttleKey := req.Username + "\x00" + c.ClientIP()
+
+	if wait := loginThrottler.retryAfter(throttleKey); wait > 0 {
+		seconds := int(wait.Seconds()) + 1
+		c.Header("Retry-After", strconv.Itoa(seconds))
+		h.Audit.WithContext(c).Failure(audit.ActionLogin, req.Username,
+			errors.New("locked out"), "reason", "too_many_failed_attempts")
+		c.JSON(http.StatusTooManyRequests, gin.H{
+			"error": fmt.Sprintf("Too many failed login attempts. Try again in %d seconds.", seconds),
+		})
 		return
 	}
 
 	var user models.User
-	if err := h.DB.Where("username = ?", req.Username).Limit(1).Find(&user).Error; err != nil {
+	err := h.DB.Where("username = ?", req.Username).Limit(1).Find(&user).Error
+	found := err == nil && user.ID != 0
+
+	// Always run a password comparison, even when the user does not exist.
+	// Returning early on a miss makes an unknown username measurably faster
+	// than a known one with a wrong password, which reveals which accounts
+	// exist. CheckPassword on the zero-value user compares against an empty
+	// hash, so this stays a constant-ish cost without ever authenticating.
+	passwordOK := user.CheckPassword(req.Password)
+
+	if err != nil || !found || !passwordOK {
+		lockout := loginThrottler.recordFailure(throttleKey)
+
+		reason := "bad_password"
+		if !found {
+			reason = "unknown_user"
+		}
+		kv := []any{"reason", reason}
+		if lockout > 0 {
+			kv = append(kv, "locked_out_for", lockout.String())
+		}
+		h.Audit.WithContext(c).Failure(audit.ActionLogin, req.Username,
+			errors.New("invalid credentials"), kv...)
+
+		// The response stays identical in all three cases so it leaks nothing
+		// about which usernames exist.
 		c.JSON(401, gin.H{"error": "Invalid credentials"})
 		return
 	}
 
-	if !user.CheckPassword(req.Password) {
-		c.JSON(401, gin.H{"error": "Invalid credentials"})
-		return
-	}
+	loginThrottler.recordSuccess(throttleKey)
 
 	// 1. Generate the token using the secret from your config
 	token, err := GenerateToken(user, h.Config.Server.JwtSecret)
@@ -51,6 +110,8 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		c.JSON(500, gin.H{"error": "Could not generate token"})
 		return
 	}
+
+	h.Audit.WithContext(c).Success(audit.ActionLogin, req.Username)
 
 	// 2. Return token + basic user info for the UI
 	c.JSON(200, gin.H{
@@ -76,8 +137,14 @@ func (h *AuthHandler) CreateUser(c *gin.Context) {
 		AllowedPaths models.StringList `json:"allowed_paths"`
 		IsAdmin      bool              `json:"is_admin"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := bindJSONStrict(c, &req); err != nil {
 		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+
+	var existingUser models.User
+	if err := h.DB.Where("username = ?", req.Username).First(&existingUser).Error; err == nil {
+		c.JSON(400, gin.H{"error": "User with this username already exists"})
 		return
 	}
 
@@ -85,9 +152,28 @@ func (h *AuthHandler) CreateUser(c *gin.Context) {
 	user.SetPassword(req.Password)
 
 	if err := h.DB.Create(&user).Error; err != nil {
-		c.JSON(500, gin.H{"error": "Could not create user"})
+		h.log(c).WithError(err).Error("User create failed")
+		h.Audit.WithContext(c).Failure(
+			audit.ActionUserCreate,
+			req.Username,
+			err,
+			"created_by", c.GetString("username"),
+			"is_admin", req.IsAdmin,
+		)
+		c.JSON(500, gin.H{"error": "Could not create user: " + err.Error()})
 		return
 	}
+
+	// is_admin and allowed_paths are recorded because they are the privilege
+	// grant: "who was given admin, by whom" is the question this entry answers.
+	h.Audit.WithContext(c).Success(
+		audit.ActionUserCreate,
+		user.Username,
+		"created_by", c.GetString("username"),
+		"is_admin", user.IsAdmin,
+		"allowed_paths", user.AllowedPaths,
+	)
+
 	c.JSON(201, user)
 }
 
@@ -114,8 +200,8 @@ func (h *AuthHandler) UpdateUser(c *gin.Context) {
 		AllowedPaths models.StringList `json:"allowed_paths"`
 	}
 
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(400, gin.H{"error": "Invalid request body"})
+	if err := bindJSONStrict(c, &req); err != nil {
+		c.JSON(400, gin.H{"error": "Invalid request body: " + err.Error()})
 		return
 	}
 
@@ -183,7 +269,7 @@ func (h *AuthHandler) DeleteUser(c *gin.Context) {
 	currentUserID := c.MustGet("user_id").(uint)
 
 	// Safety: Prevent self-deletion
-	logrus.Infof("id: %v %v", fmt.Sprint(currentUserID), id)
+	h.log(c).Infof("id: %v %v", fmt.Sprint(currentUserID), id)
 	if fmt.Sprint(currentUserID) == id {
 		c.JSON(http.StatusForbidden, gin.H{"error": "You cannot delete your own account"})
 		return
@@ -217,23 +303,36 @@ func (h *AuthHandler) DeleteUser(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
-// CreateToken handles POST /_/api/admin/tokens
+// CreateToken handles POST /_/api/tokens
 func (h *AuthHandler) CreateToken(c *gin.Context) {
+	currentUserID := c.MustGet("user_id").(uint)
+	isAdmin := c.GetBool("is_admin")
+
 	var req struct {
-		UserID       uint     `json:"user_id" binding:"required"`
+		UserID       uint     `json:"user_id"`
 		Name         string   `json:"name" binding:"required"`
 		AllowedPaths []string `json:"allowed_paths"`
 		Expires      string   `json:"expires"`
 	}
 
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := bindJSONStrict(c, &req); err != nil {
 		c.JSON(400, gin.H{"error": err.Error()})
 		return
+	}
+	if req.Name == "" {
+		c.JSON(400, gin.H{"error": "name is required"})
+		return
+	}
+
+	// Logic: If user is not admin, they can ONLY create tokens for themselves.
+	targetUserID := currentUserID
+	if isAdmin && req.UserID != 0 {
+		targetUserID = req.UserID
 	}
 
 	var expiresAt *time.Time
 	if req.Expires != "" {
-		t, err := utils.ParseExpiry(req.Expires) // Reusing our smart parser
+		t, err := utils.ParseExpiry(req.Expires)
 		if err != nil {
 			c.JSON(400, gin.H{"error": "Invalid expiry format"})
 			return
@@ -243,7 +342,7 @@ func (h *AuthHandler) CreateToken(c *gin.Context) {
 
 	plainToken, _ := GenerateRandomToken()
 	token := models.Token{
-		UserID:       req.UserID,
+		UserID:       targetUserID,
 		Name:         req.Name,
 		AllowedPaths: req.AllowedPaths,
 		ExpiresAt:    expiresAt,
@@ -251,15 +350,26 @@ func (h *AuthHandler) CreateToken(c *gin.Context) {
 	}
 
 	if err := h.DB.Create(&token).Error; err != nil {
-		h.Log.WithError(err).Error("Failed to create token")
+		h.log(c).WithError(err).Error("Failed to create token")
 		c.JSON(500, gin.H{"error": "Failed to create token"})
 		return
 	}
 
+	// The owner is looked up rather than read off token.User: the Token above is
+	// constructed literally with only UserID set, so the association is the zero
+	// value and this field logged an empty owner on every token ever issued.
+	ownerName := c.GetString("username")
+	if targetUserID != currentUserID {
+		var owner models.User
+		if err := h.DB.Select("username").First(&owner, targetUserID).Error; err == nil {
+			ownerName = owner.Username
+		}
+	}
+
 	h.Audit.WithContext(c).Success(
-		"TOKEN_CREATED",
+		audit.ActionTokenCreate,
 		token.Name,
-		"owner", token.User.Username,
+		"owner", ownerName,
 		"allowed_paths", token.AllowedPaths,
 	)
 
@@ -272,39 +382,71 @@ func (h *AuthHandler) CreateToken(c *gin.Context) {
 	})
 }
 
-// ListTokens handles GET /_/api/admin/tokens
+// ListTokens handles GET /_/api/tokens
 func (h *AuthHandler) ListTokens(c *gin.Context) {
+	currentUserID := c.MustGet("user_id").(uint)
+	isAdmin := c.GetBool("is_admin")
+
+	query := h.DB.Preload("User")
+
+	// If not admin, or if admin didn't explicitly ask for "all"
+	// we only show the user's own tokens.
+	if !isAdmin {
+		query = query.Where("user_id = ?", currentUserID)
+	}
+
 	var tokens []models.Token
-	h.DB.Preload("User").Find(&tokens)
+	if err := query.Find(&tokens).Error; err != nil {
+		c.JSON(500, gin.H{"error": "Database error"})
+		return
+	}
 	c.JSON(200, tokens)
 }
 
-// DeleteToken handles DELETE /_/api/admin/tokens/:id
+// DeleteToken handles DELETE /_/api/tokens/:id
 func (h *AuthHandler) DeleteToken(c *gin.Context) {
-	tokenID := c.Param("id")
+	id := c.Param("id")
+	currentUserID := c.MustGet("user_id").(uint)
+	isAdmin := c.GetBool("is_admin")
 
-	// 1. Find the token first (to check if it exists and get data for auditing)
+	// User is preloaded so the audit entry names the token's owner, which is the
+	// point of the record when an admin revokes someone else's credential.
 	var token models.Token
-	if err := h.DB.Preload("User").First(&token, tokenID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Token not found"})
+	if err := h.DB.Preload("User").First(&token, id).Error; err != nil {
+		c.JSON(404, gin.H{"error": "Token not found"})
 		return
 	}
 
-	// 2. Physical Deletion
+	// OWNERSHIP CHECK: Only delete if owner OR admin
+	if token.UserID != currentUserID && !isAdmin {
+		h.Audit.WithContext(c).Failure(
+			audit.ActionTokenDelete,
+			token.Name,
+			errors.New("not owner and not admin"),
+			"owner", token.User.Username,
+		)
+		c.JSON(403, gin.H{"error": "You do not have permission to revoke this token"})
+		return
+	}
+	h.log(c).Infof("token id to delete: tokenID:%v id:%v", token.ID, id)
 	if err := h.DB.Delete(&token).Error; err != nil {
-		h.Log.WithError(err).Error("Failed to delete API token")
+		h.log(c).WithError(err).Error("failed to delete token")
+		h.Audit.WithContext(c).Failure(
+			audit.ActionTokenDelete,
+			token.Name,
+			err,
+			"owner", token.User.Username,
+		)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to revoke token"})
 		return
 	}
 
-	// 3. AUDIT: Record that an admin revoked a token
 	h.Audit.WithContext(c).Success(
-		"TOKEN_REVOKE",
+		audit.ActionTokenDelete,
 		token.Name,
 		"owner", token.User.Username,
-		"allowed_paths", token.AllowedPaths,
+		"revoked_by", c.GetString("username"),
 	)
 
-	// 4. Return 204 No Content
-	c.Status(http.StatusNoContent)
+	c.Status(204)
 }

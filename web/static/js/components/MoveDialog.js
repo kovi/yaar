@@ -1,12 +1,13 @@
-import { API } from '../api/ApiClient.js';
-import { pickFolder } from './FolderPicker.js';
+import { API } from "../api/ApiClient.js";
+import { pickFolder } from "./FolderPicker.js";
+import { showToast } from "./Toast.js";
 
 export function openMoveDialog(file, currentPath) {
-    const dialog = document.createElement('dialog');
-    dialog.className = 'af-modal';
-    const oldFullPath = (currentPath + '/' + file.name).replace(/\/+/g, '/');
+	const dialog = document.createElement("dialog");
+	dialog.className = "af-modal";
+	const oldFullPath = `${currentPath}/${file.name}`.replace(/\/+/g, "/");
 
-    dialog.innerHTML = `
+	dialog.innerHTML = `
         <form method="dialog" class="af-form">
             <div class="af-modal-header">
                 <h3>Move 📦 ${file.name}</h3>
@@ -32,35 +33,46 @@ export function openMoveDialog(file, currentPath) {
         </form>
     `;
 
-    document.body.appendChild(dialog);
-    dialog.showModal();
+	document.body.appendChild(dialog);
+	dialog.showModal();
 
-    // --- Visual Browser Trigger ---
-    dialog.querySelector('#browse-folders-btn').onclick = async () => {
-        const selectedFolder = await pickFolder(currentPath);
-        if (selectedFolder) {
-            dialog.querySelector('#dest-folder-input').value = selectedFolder;
-        }
-    };
+	// --- Visual Browser Trigger ---
+	dialog.querySelector("#browse-folders-btn").onclick = async () => {
+		const selectedFolder = await pickFolder(currentPath);
+		if (selectedFolder) {
+			dialog.querySelector("#dest-folder-input").value = selectedFolder;
+		}
+	};
 
-    const form = dialog.querySelector('form');
-    form.onsubmit = async (e) => {
-        e.preventDefault();
-        const fd = new FormData(form);
-        const targetPath = (fd.get('dest_folder') + '/' + fd.get('new_name')).replace(/\/+/g, '/');
-        
-        try {
-            await API.moveResource(oldFullPath, targetPath);
-            dialog.close();
-            dialog.remove();
-            window.dispatchEvent(new CustomEvent('artifactory:refresh', { detail: { path: currentPath } }));
-        } catch (err) {
-            alert(err.message);
-        }
-    };
+	const form = dialog.querySelector("form");
+	form.onsubmit = async (e) => {
+		e.preventDefault();
+		const fd = new FormData(form);
+		const targetPath = (
+			fd.get("dest_folder") +
+			"/" +
+			fd.get("new_name")
+		).replace(/\/+/g, "/");
 
-    dialog.querySelectorAll('.modal-close').forEach(btn => btn.onclick = () => {
-        dialog.close();
-        dialog.remove();
-    });
+		try {
+			await API.moveResource(oldFullPath, targetPath);
+			dialog.close();
+			dialog.remove();
+			window.dispatchEvent(
+				new CustomEvent("artifactory:refresh", {
+					detail: { path: currentPath },
+				}),
+			);
+		} catch (err) {
+			showToast(err.message, "error");
+		}
+	};
+
+	dialog.querySelectorAll(".modal-close").forEach(
+		(btn) =>
+			(btn.onclick = () => {
+				dialog.close();
+				dialog.remove();
+			}),
+	);
 }

@@ -12,6 +12,9 @@ import (
 	"path/filepath"
 	"sync/atomic"
 	"time"
+
+	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
 )
 
 type SyncController struct {
@@ -79,8 +82,16 @@ func (sc *SyncController) runRecursiveSync(ctx context.Context) {
 	time.Sleep(50 * time.Millisecond)
 }
 
+// SyncFilesystem reconciles the database against what is on disk.
+//
+// Like RunCleanup, one pass tags all of its lines with a run_id so a
+// reconciliation that touches many paths reads as a single unit.
 func (h *Handler) SyncFilesystem(ctx context.Context) {
-	h.Log.Info("Sync: Starting reconciliation...")
+	log := h.Log.WithFields(logrus.Fields{
+		"worker": "sync",
+		"run_id": uuid.NewString(),
+	})
+	log.Info("Sync: Starting reconciliation...")
 
 	// 1. Pre-load all DB records into memory for fast lookup
 	dbFiles := make(map[string]MetaResource)
@@ -107,14 +118,23 @@ func (h *Handler) SyncFilesystem(ctx context.Context) {
 
 		foundOnDisk[urlPath] = true
 
-		// SKIP: We don't need to add directories to the DB during sync.
-		// If they exist in DB (e.g. they have tags), cleanup will handle them if they vanish.
+		meta, exists := dbFiles[urlPath]
+
 		if d.IsDir() {
+			if exists {
+				info, _ := d.Info()
+				if meta.Size != info.Size() || meta.ModTime.Unix() != info.ModTime().Unix() {
+					meta.Size = info.Size()
+					meta.ModTime = info.ModTime()
+					if err := h.DB.Save(&meta).Error; err != nil {
+						log.WithError(err).Errorf("Sync: Failed to update directory stats for %s", urlPath)
+					}
+				}
+			}
 			return nil
 		}
 
 		info, _ := d.Info()
-		meta, exists := dbFiles[urlPath]
 
 		// CHANGE DETECTION LOGIC:
 		// We re-hash only if:
@@ -122,7 +142,7 @@ func (h *Handler) SyncFilesystem(ctx context.Context) {
 		// - Physical size is different
 		// - Physical ModTime is different (we use Unix timestamps for reliable comparison)
 		if !exists || meta.Size != info.Size() || meta.ModTime.Unix() != info.ModTime().Unix() {
-			h.Log.Infof("Sync: Processing %s (Size/Time mismatch) m.size:%v, f.size:%v, m.modtime:%v, f.modtime:%v", urlPath, meta.Size, info.Size(), meta.ModTime.Unix(), info.ModTime().Unix())
+			log.Infof("Sync: Processing %s (Size/Time mismatch) m.size:%v, f.size:%v, m.modtime:%v, f.modtime:%v", urlPath, meta.Size, info.Size(), meta.ModTime.Unix(), info.ModTime().Unix())
 			h.processIncomingFile(ctx, path, urlPath, info)
 		}
 
@@ -130,14 +150,14 @@ func (h *Handler) SyncFilesystem(ctx context.Context) {
 	})
 
 	if err != nil {
-		h.Log.WithError(err).Error("Sync: Walk failed")
+		log.WithError(err).Error("Sync: Walk failed")
 	}
 
 	// 3. CLEANUP: If a record exists in DB but is not on disk, remove it.
 	// This works for both Files and Directories (if the Dir was in the DB).
 	for path, meta := range dbFiles {
 		if !foundOnDisk[path] {
-			h.Log.Infof("Sync: Removing ghost record from DB: %s", path)
+			log.Infof("Sync: Removing ghost record from DB: %s", path)
 			h.DB.Delete(&meta)
 			// Pass "nil" for context as per our new Auditor interface
 			h.Audit.Success("SYSTEM_SYNC_CLEANUP", path, "reason", "missing_on_disk")
@@ -178,9 +198,19 @@ func (h *Handler) processIncomingFile(ctx context.Context, fullDiskPath, urlPath
 	meta.SHA256 = sha256sum
 	meta.ModTime = info.ModTime()
 	meta.ContentType = contentType
+	h.Audit.Success("SYSTEM_SYNC_CLEANUP", urlPath, "reason", "new file on disk", "size", meta.Size, "sha256", meta.SHA256)
 
 	h.DB.Save(&meta)
 }
+
+// hashThrottleBytesPerSec bounds how fast the background sync worker reads from
+// disk, so a large re-hash cannot saturate I/O and starve request handlers.
+//
+// The previous form — a flat 5ms sleep per 32KB chunk — worked out to roughly
+// 6 MB/s, which put a 1GB artifact at ~2.7 minutes of wall time regardless of
+// how idle the server was. A pause budgeted against elapsed time keeps the same
+// "stay out of the way" property at a usable ceiling.
+const hashThrottleBytesPerSec = 64 * 1024 * 1024
 
 func (h *Handler) calculateHashes(ctx context.Context, reader io.Reader) (string, string, string, int64) {
 	md5 := md5.New()
@@ -189,12 +219,13 @@ func (h *Handler) calculateHashes(ctx context.Context, reader io.Reader) (string
 
 	// Stream to file and all hashers at once
 	multi := io.MultiWriter(md5, sha1, sha256)
-	// written, _ := io.Copy(multi, reader)
 
-	// Use a small buffer to avoid memory spikes
-	buffer := make([]byte, 32*1024)
+	// 1MB balances syscall overhead against the memory a concurrent scan holds.
+	buffer := make([]byte, 1024*1024)
 
 	written := int64(0)
+	start := time.Now()
+
 	for {
 		// Check if app is shutting down
 		select {
@@ -205,17 +236,30 @@ func (h *Handler) calculateHashes(ctx context.Context, reader io.Reader) (string
 
 		n, err := reader.Read(buffer)
 		if n > 0 {
-			n, err = multi.Write(buffer[:n])
+			n, werr := multi.Write(buffer[:n])
 			written += int64(n)
-			if err != nil {
+			if werr != nil {
 				return "", "", "", 0
 			}
 
-			// THROTTLING: Yield to other goroutines every chunk
-			time.Sleep(5 * time.Millisecond)
+			// THROTTLING: sleep only when we are running ahead of the budget,
+			// so an idle server hashes at full speed up to the ceiling.
+			budget := time.Duration(float64(written) / hashThrottleBytesPerSec * float64(time.Second))
+			if ahead := budget - time.Since(start); ahead > 0 {
+				timer := time.NewTimer(ahead)
+				select {
+				case <-ctx.Done():
+					timer.Stop()
+					return "", "", "", 0
+				case <-timer.C:
+				}
+			}
 		}
 		if err == io.EOF {
 			break
+		}
+		if err != nil {
+			return "", "", "", 0
 		}
 	}
 

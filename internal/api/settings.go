@@ -2,10 +2,14 @@ package api
 
 import (
 	"fmt"
+	"os"
+	"runtime"
 	"runtime/debug"
+	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/kovi/yaar/internal/models"
 	"github.com/sirupsen/logrus"
 )
 
@@ -65,36 +69,87 @@ func InitializeVersionInfo(log *logrus.Entry) error {
 		"go":      info.GoVersion,
 		"arch":    buildSettings["GOARCH"],
 		"os":      buildSettings["GOOS"],
-	}).Info("Artifactory system initialized")
+	}).Info("started")
 
 	return nil
 }
 
+// GetSettings serves the system/diagnostics payload.
+//
+// The response is tiered. Every authenticated caller gets the operational view
+// the UI's System tab renders (version, uptime, resource usage). The detailed
+// view — the full config with its storage paths and DB filename, the exact
+// commit, and the dependency SBOM with versions — is admin-only: a complete
+// dependency list with versions is a ready-made vulnerability-matching list, and
+// there is no reason for a non-admin to hold one.
 func (h *Handler) GetSettings(c *gin.Context) {
-	// Prepare the dependency list (Software Bill of Materials)
-	dependencies := make(map[string]string)
-	if cachedBuildInfo != nil {
-		for _, dep := range cachedBuildInfo.Deps {
-			dependencies[dep.Path] = dep.Version
-		}
+	isAdmin, _ := c.Get("is_admin")
+
+	// Get DB Size
+	dbSize := 0
+	dbStat, err := os.Stat(h.Config.Database.File)
+	if err == nil {
+		dbSize = int(dbStat.Size())
 	}
 
-	c.JSON(200, gin.H{
-		"version":    Version,
-		"commit":     Commit,
-		"build_date": BuildDate,
-		"go_version": cachedBuildInfo.GoVersion,
-		"is_dirty":   IsDirty,
-		// Infrastructure info
+	// Get Storage Disk Usage
+	var storageTotal, storageFree uint64
+	var stat syscall.Statfs_t
+	if err := syscall.Statfs(h.Config.Storage.BaseDir, &stat); err == nil {
+		storageTotal = stat.Blocks * uint64(stat.Bsize)
+		storageFree = stat.Bavail * uint64(stat.Bsize)
+	}
+
+	// Memory Info
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+
+	goVersion := ""
+	if cachedBuildInfo != nil {
+		goVersion = cachedBuildInfo.GoVersion
+	}
+
+	resp := gin.H{
+		"version":        Version,
+		"build_date":     BuildDate,
+		"go_version":     goVersion,
+		"uptime_seconds": time.Since(h.StartTime).Seconds(),
+		"is_dirty":       IsDirty,
 		"runtime": gin.H{
-			"os":       buildSettings["GOOS"],
-			"arch":     buildSettings["GOARCH"],
-			"cgo":      buildSettings["CGO_ENABLED"] == "1",
-			"compiler": buildSettings["-compiler"],
+			"goroutines": runtime.NumGoroutine(),
+			"mem_alloc":  m.Alloc, // Current bytes allocated
+			"sys_total":  m.Sys,   // Total bytes obtained from System
+			"os":         buildSettings["GOOS"],
+			"arch":       buildSettings["GOARCH"],
+			"cgo":        buildSettings["CGO_ENABLED"] == "1",
+			"compiler":   buildSettings["-compiler"],
 		},
-		// The full dependency tree
-		"dependencies": dependencies,
-		// Your application YAML configuration
-		"config": h.Config,
-	})
+		"db_size": dbSize,
+		"storage": gin.H{
+			"total": storageTotal,
+			"free":  storageFree,
+			"used":  storageTotal - storageFree,
+		},
+	}
+
+	if isAdmin == true {
+		// Prepare the dependency list (Software Bill of Materials)
+		dependencies := make(map[string]string)
+		if cachedBuildInfo != nil {
+			for _, dep := range cachedBuildInfo.Deps {
+				dependencies[dep.Path] = dep.Version
+			}
+		}
+
+		// Get all System States
+		var states []models.SystemState
+		h.DB.Find(&states)
+
+		resp["commit"] = Commit
+		resp["dependencies"] = dependencies
+		resp["config"] = h.Config
+		resp["system_states"] = states
+	}
+
+	c.JSON(200, resp)
 }

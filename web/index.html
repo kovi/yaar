@@ -6,7 +6,6 @@
     <title>Artifactory</title>
     <!-- System assets are shielded under /_/static/ -->
     <link rel="icon" type="image/png" href="/_/static/favicon.png">
-    <link rel="stylesheet" href="/_/static/css/style.css">
     <link rel="stylesheet" href="/_/static/css/common.css">
     <link rel="stylesheet" href="/_/static/css/app.css">
 </head>
@@ -32,8 +31,8 @@
             </div>
 
             <!-- 3. RIGHT -->
-            <div class="af-navbar-right">
-                <button class="btn btn-ghost btn-settings" title="Settings">⚙️</button>
+            <div class="af-navbar-right" id="nav-right-container">
+                <!-- User menu and notifications injected by app.js -->
             </div>
         </div>
     </header>
@@ -41,6 +40,13 @@
     <main id="app">
         <!-- Content injected by app.js -->
     </main>
+
+    <div id="global-drag-overlay" class="af-global-drag-overlay">
+        <div class="overlay-content">
+            <span style="font-size: 64px;">☁️</span>
+            <h2>Drop files here to upload</h2>
+        </div>
+    </div>
 
     <script type="module" src="/_/static/js/app.js"></script>
 </body>
