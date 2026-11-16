@@ -81,6 +81,8 @@ function renderUserMenu() {
 	initNotifications();
 }
 
+window.addEventListener("af:notifications-refresh", () => initNotifications());
+
 async function initNotifications() {
 	const user = Auth.getUser();
 	const wrapper = document.getElementById("nav-notifications-wrapper");
@@ -102,11 +104,14 @@ async function initNotifications() {
 	};
 
 	try {
-		const failures = await API.getJanitorErrors();
+		const [failures, janitor] = await Promise.all([
+			API.getJanitorErrors(),
+			API.getJanitorStatus().catch(() => null),
+		]);
 		const badge = document.getElementById("nav-notifications-badge");
 		const dropdownList = document.getElementById("nav-notifications-list");
 
-		renderNotifications(failures, badge, dropdownList, dropdown);
+		renderNotifications(failures, janitor, badge, dropdownList, dropdown);
 	} catch (e) {
 		console.error("Failed to fetch notifications", e);
 	}
@@ -121,17 +126,39 @@ function notificationDetail(f) {
 	return `${subject} failed${attempts}: ${reason}`;
 }
 
-function renderNotifications(failures, badge, dropdownList, dropdown) {
-	if (!failures || failures.length === 0) {
+function renderNotifications(failures, janitor, badge, dropdownList, dropdown) {
+	failures = failures || [];
+	const suspended = janitor?.suspended;
+	if (failures.length === 0 && !suspended) {
 		badge.classList.add("hidden");
 		dropdownList.innerHTML = `<div class="af-notification-item"><div class="af-notification-desc" style="text-align:center">No new alerts</div></div>`;
 		return;
 	}
 
+	const count = failures.length + (suspended ? 1 : 0);
 	badge.classList.remove("hidden");
-	badge.textContent = failures.length > 9 ? "9+" : failures.length;
+	badge.textContent = count > 9 ? "9+" : count;
+
+	const items = [];
+	if (suspended) {
+		// Not dismissable here: resuming is a decision made on the review card.
+		const item = document.createElement("div");
+		item.className = "af-notification-item";
+		item.innerHTML = `
+			<div class="af-notification-title">Janitor suspended</div>
+			<div class="af-notification-path">${Format.escapeHtml(janitor.reason)}</div>
+			<div class="af-notification-desc">No files are deleted until an admin reviews the pending deletions and resumes it.</div>
+		`;
+		item.addEventListener("click", () => {
+			dropdown.classList.add("hidden");
+			openSettings("janitor");
+			goToCard("janitor-review-card");
+		});
+		items.push(item);
+	}
 
 	dropdownList.replaceChildren(
+		...items,
 		...failures.map((f) => {
 			const item = document.createElement("div");
 			item.className = "af-notification-item";
@@ -145,8 +172,8 @@ function renderNotifications(failures, badge, dropdownList, dropdown) {
 			// Click the body -> open Settings and jump to the Janitor card.
 			item.addEventListener("click", () => {
 				dropdown.classList.add("hidden");
-				openSettings();
-				goToJanitorCard();
+				openSettings("janitor");
+				goToCard("janitor-failures-card");
 			});
 
 			// Dismiss (X) -> clear the failure on the backend, then refresh.
@@ -169,12 +196,12 @@ function renderNotifications(failures, badge, dropdownList, dropdown) {
 	);
 }
 
-// After opening Settings, the System tab (with the Janitor card) renders
+// After opening Settings, the System tab (with the Janitor cards) renders
 // asynchronously. Poll briefly for the card, then scroll to and flash it.
-function goToJanitorCard() {
+function goToCard(id) {
 	let tries = 0;
 	const timer = setInterval(() => {
-		const card = document.getElementById("janitor-failures-card");
+		const card = document.getElementById(id);
 		if (card && card.style.display !== "none") {
 			clearInterval(timer);
 			card.scrollIntoView({ behavior: "smooth", block: "center" });

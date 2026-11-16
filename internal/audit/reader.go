@@ -19,7 +19,10 @@ type ReadOptions struct {
 	BeforeOffset int64  // scan backward from here; -1 = start from EOF
 	Limit        int    // max entries; default 50, max 200
 	Filter       string // case-insensitive substring match on raw JSON line
-	MaxScanBytes int64  // 0 = 50 MB default
+	// AnyOf, when non-empty, keeps only lines containing at least one of these
+	// case-insensitive substrings. Combined with Filter (both must match).
+	AnyOf        []string
+	MaxScanBytes int64 // 0 = 50 MB default
 	// Generation selects which file to read: 0 is the live audit.log, 1 is
 	// audit.log.1 and so on. Paging walks forward through generations as each is
 	// exhausted, so rotation does not make older entries unreachable.
@@ -195,6 +198,12 @@ func (a *Auditor) readPageFile(path string, opts ReadOptions) (*filePage, error)
 	}
 
 	filterLower := strings.ToLower(opts.Filter)
+	anyLower := make([][]byte, 0, len(opts.AnyOf))
+	for _, s := range opts.AnyOf {
+		if s != "" {
+			anyLower = append(anyLower, []byte(strings.ToLower(s)))
+		}
+	}
 	entries := []map[string]any{}
 	nextBeforeOffset := int64(-1)
 	scanLimitHit := false
@@ -245,8 +254,14 @@ outer:
 				continue
 			}
 
-			if filterLower != "" && !bytes.Contains(bytes.ToLower(line), []byte(filterLower)) {
-				continue
+			if filterLower != "" || len(anyLower) > 0 {
+				lower := bytes.ToLower(line)
+				if filterLower != "" && !bytes.Contains(lower, []byte(filterLower)) {
+					continue
+				}
+				if len(anyLower) > 0 && !containsAny(lower, anyLower) {
+					continue
+				}
 			}
 
 			var entry map[string]any
@@ -295,4 +310,13 @@ func clone(b []byte) []byte {
 	c := make([]byte, len(b))
 	copy(c, b)
 	return c
+}
+
+func containsAny(line []byte, subs [][]byte) bool {
+	for _, s := range subs {
+		if bytes.Contains(line, s) {
+			return true
+		}
+	}
+	return false
 }

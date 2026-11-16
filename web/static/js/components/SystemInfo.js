@@ -1,5 +1,6 @@
 import { API } from "../api/ApiClient.js";
 import { Format } from "../api/Format.js";
+import { janitorControls, janitorStatusHtml } from "./JanitorReview.js";
 import { showToast } from "./Toast.js";
 
 const template = document.createElement("template");
@@ -90,19 +91,17 @@ template.innerHTML = `
                 </div>
                 <button class="btn btn-ghost btn-sm" id="btn-vacuum">🧹 Run Vacuum</button>
             </div>
-        </div>
-
-        <!-- 4b. JANITOR FAILURES -->
-        <div class="af-card" id="janitor-failures-card" style="margin-top: 24px; display: none;">
-            <label class="af-section-label" style="color: var(--danger); margin-top: 0;">Janitor Cleanup Failures</label>
-            <div class="af-table-wrapper">
-                <table class="af-table af-table-compact af-janitor-table">
-                    <thead><tr><th>Type</th><th>Identifier</th><th>Attempts</th><th>Last Error</th><th>Next Retry</th><th>Actions</th></tr></thead>
-                    <tbody id="janitor-failures-body"></tbody>
-                </table>
+            <div class="af-operation-item af-op-janitor" id="op-janitor" hidden>
+                <div class="af-operation-info">
+                    <h4>Janitor</h4>
+                    <p class="af-jr-status" id="op-janitor-status"></p>
+                </div>
+                <div class="af-op-janitor-actions" id="op-janitor-actions">
+                    <button class="btn btn-ghost btn-sm" id="btn-open-janitor">Details →</button>
+                </div>
             </div>
         </div>
-        
+
         <!-- 5. CONFIG -->
         <div style="margin-top: 32px">
             <label class="af-section-label">Active Configuration</label>
@@ -169,8 +168,8 @@ export async function SystemInfo() {
 			.map(
 				(s) => `
         <tr>
-            <td><code>${s.key}</code></td>
-            <td>${s.value}</td>
+            <td><code>${Format.escapeHtml(s.key)}</code></td>
+            <td>${Format.escapeHtml(s.value)}</td>
             <td class="af-col-mono" style="font-size:11px">${Format.dateTime(s.updated_at)}</td>
         </tr>
     `,
@@ -183,48 +182,23 @@ export async function SystemInfo() {
 		? JSON.stringify(data.config, null, 2)
 		: "Administrator access required.";
 
-	// 4b. Janitor Failures
-	try {
-		const failures = await API.getJanitorErrors();
-		if (failures && failures.length > 0) {
-			const card = container.getElementById("janitor-failures-card");
-			card.style.display = "block";
-			const tbodyFailures = container.getElementById("janitor-failures-body");
-			tbodyFailures.innerHTML = failures
-				.map(
-					(f) => `
-                <tr>
-                    <td><span class="badge ${f.type === "group" ? "badge-info" : "badge-outline"}">${Format.escapeHtml(f.type)}</span></td>
-                    <td class="af-janitor-key"><code title="${Format.escapeHtml(f.key)}">${Format.escapeHtml(f.key)}</code></td>
-                    <td style="text-align:center">${f.attempts}</td>
-                    <td class="af-janitor-error" title="${Format.escapeHtml(f.last_error)}">${Format.escapeHtml(f.last_error)}</td>
-                    <td class="af-col-mono" style="font-size:11px;white-space:nowrap">${Format.dateTime(f.retry_after)}</td>
-                    <td><button class="btn btn-ghost btn-sm btn-clear-janitor" data-key="${Format.escapeHtml(f.key)}">Clear</button></td>
-                </tr>
-            `,
-				)
-				.join("");
-
-			// Wire up clear buttons
-			tbodyFailures.querySelectorAll(".btn-clear-janitor").forEach((btn) => {
-				btn.onclick = async () => {
-					btn.disabled = true;
-					btn.innerText = "Clearing...";
-					try {
-						const res = await API.clearJanitorError(btn.dataset.key);
-						showToast(res.message, "success");
-						// Refresh the UI to reflect cleared error
-						window.dispatchEvent(new CustomEvent("af:settings-refresh"));
-					} catch (err) {
-						showToast(err.message, "error");
-						btn.disabled = false;
-						btn.innerText = "Clear";
-					}
-				};
-			});
+	// Janitor row in Operations — admin only (system_states is only sent to admins).
+	if (data.system_states) {
+		try {
+			const status = await API.getJanitorStatus();
+			container.getElementById("op-janitor").hidden = false;
+			container.getElementById("op-janitor-status").innerHTML =
+				janitorStatusHtml(status);
+			container
+				.getElementById("op-janitor-actions")
+				.prepend(janitorControls(status));
+			container.getElementById("btn-open-janitor").onclick = () =>
+				window.dispatchEvent(
+					new CustomEvent("af:settings-tab", { detail: "janitor" }),
+				);
+		} catch (e) {
+			console.error("Failed to load janitor status:", e);
 		}
-	} catch (e) {
-		console.error("Failed to load janitor errors:", e);
 	}
 
 	// Listeners

@@ -64,6 +64,11 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 	system.POST("vacuum", h.HandleVacuum)
 	system.GET("janitor/errors", h.GetJanitorErrors)
 	system.DELETE("janitor/errors/:key", h.ClearJanitorError)
+	system.GET("janitor/status", h.GetJanitorStatus)
+	system.GET("janitor/pending", h.GetPendingDeletions)
+	system.POST("janitor/keep", h.KeepPending)
+	system.POST("janitor/resume", h.ResumeJanitorHandler)
+	system.POST("janitor/suspend", h.SuspendJanitorHandler)
 	if h.TriggerSync != nil {
 		system.POST("sync", func(c *gin.Context) {
 			h.TriggerSync()

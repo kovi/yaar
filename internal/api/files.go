@@ -23,6 +23,10 @@ import (
 	"gorm.io/gorm"
 )
 
+// errPublishFailed marks an upload whose DB changes were valid but whose temp
+// file could not be renamed into place.
+var errPublishFailed = errors.New("publish upload failed")
+
 func (h *Handler) fsPath(path string) string {
 	return filepath.Join(h.BaseDir, filepath.Clean(path))
 }
@@ -292,30 +296,23 @@ func (h *Handler) HandleUpload(c *gin.Context) {
 		return
 	}
 
-	// Commit: the body is complete and verified, so publish it atomically.
-	// os.Rename replaces any existing file in one step, so a concurrent reader
-	// sees either the old artifact or the new one — never a partial write.
-	if err := os.Rename(tmpPath, fullPath); err != nil {
-		log.WithError(err).Errorf("failed to publish upload to %v", fullPath)
-		h.Audit.WithContext(c).Failure(audit.ActionUpload, urlPath, err)
-		c.JSON(500, gin.H{"error": "Failed to save file"})
-		return
-	}
-	committed = true
-
 	// CreateTemp uses 0600; the published artifact needs the ordinary 0644 that
 	// os.Create would have produced (minus umask, which does not apply here).
-	if err := os.Chmod(fullPath, 0644); err != nil {
-		log.WithError(err).Warnf("failed to set permissions on %v", fullPath)
+	// Chmod before the rename so the file is never visible with 0600.
+	if err := os.Chmod(tmpPath, 0644); err != nil {
+		log.WithError(err).Warnf("failed to set permissions on %v", tmpPath)
 	}
 
-	// 4. Update Database
+	// 4. Update Database. The temp file is renamed into place only at the end
+	// of the transaction, once every DB check has passed: a rejected upload
+	// (e.g. a group conflict) must leave the previous artifact and its
+	// checksums untouched.
 	var res MetaResource
 
 	res.Type = ResourceTypeFile
-	// Use the filesystem's actual mtime so the sync worker sees no modtime
-	// mismatch and doesn't needlessly re-hash and re-log this file.
-	if fi, err := os.Stat(fullPath); err == nil {
+	// Use the file's actual mtime (rename preserves it) so the sync worker sees
+	// no modtime mismatch and doesn't needlessly re-hash and re-log this file.
+	if fi, err := os.Stat(tmpPath); err == nil {
 		res.ModTime = fi.ModTime()
 	} else {
 		res.ModTime = now()
@@ -344,7 +341,17 @@ func (h *Handler) HandleUpload(c *gin.Context) {
 
 		if streamName != "" && groupName != "" {
 			if res.GroupID != nil {
-				return errors.New("RESOURCE_ALREADY_IN_GROUP")
+				// Re-uploading into the group the file already belongs to is a
+				// plain overwrite. Moving it to another group is refused.
+				var current Group
+				if err := tx.Preload("Stream").First(&current, *res.GroupID).Error; err != nil {
+					return fmt.Errorf("load current group: %w", err)
+				}
+				if current.Name != groupName || current.Stream.Name != streamName {
+					return &AppError{ErrResourceAlreadyInGroup, fmt.Sprintf(
+						"Resource already belongs to group %q in stream %q and cannot be moved.",
+						current.Name, current.Stream.Name), nil}
+				}
 			}
 
 			var stream Stream
@@ -389,13 +396,34 @@ func (h *Handler) HandleUpload(c *gin.Context) {
 			}
 		}
 
-		return res.Save(tx)
+		if err := res.Save(tx); err != nil {
+			return err
+		}
+
+		// Publish: the body is complete and verified and the DB changes are
+		// valid, so move it into place. os.Rename replaces any existing file in
+		// one step, so a concurrent reader sees either the old artifact or the
+		// new one — never a partial write. A failed rename rolls the DB back.
+		if err := os.Rename(tmpPath, fullPath); err != nil {
+			log.WithError(err).Errorf("failed to publish upload to %v", fullPath)
+			return errPublishFailed
+		}
+		committed = true
+		return nil
 	})
 
 	if err != nil {
 		h.Audit.WithContext(c).Failure(audit.ActionUpload, urlPath, err)
-		log.WithError(err).Error("db sync failed")
-		c.JSON(500, gin.H{"error": "Database sync failed"})
+		var appErr *AppError
+		switch {
+		case errors.As(err, &appErr):
+			respondErr(c, appErr)
+		case errors.Is(err, errPublishFailed):
+			c.JSON(500, gin.H{"error": "Failed to save file"})
+		default:
+			log.WithError(err).Error("db sync failed")
+			c.JSON(500, gin.H{"error": "Database sync failed"})
+		}
 		return
 	}
 

@@ -109,6 +109,15 @@ func (h *Handler) RunCleanup() error {
 		"run_id": uuid.NewString(),
 	})
 
+	// A suspended janitor deletes nothing until an admin has reviewed the
+	// pending deletions and resumed it (see janitor_review.go).
+	if st, err := janitorSuspension(h.DB); err != nil {
+		return fmt.Errorf("check suspension: %w", err)
+	} else if st != nil {
+		log.WithField("reason", st.Value).Debug("janitor: suspended, skipping run")
+		return nil
+	}
+
 	if err := h.cleanupExpiredGroups(log, now); err != nil {
 		return fmt.Errorf("group cleanup: %w", err)
 	}

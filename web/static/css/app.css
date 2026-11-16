@@ -1194,3 +1194,85 @@
     0%, 30% { box-shadow: 0 0 0 3px var(--danger); }
     100% { box-shadow: 0 0 0 0 transparent; }
 }
+
+/* --- Janitor status & pending-deletion review (System tab) --- */
+.af-janitor-review { margin-bottom: 24px; }
+.af-janitor-review.af-jr-suspended { border-left: 4px solid var(--warning); background: var(--warning-bg); }
+.af-jr-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+.af-jr-status { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.af-jr-reason { font-weight: 500; font-size: 13px; }
+.af-jr-since { font-size: 12px; }
+.af-jr-hint { margin: 6px 0 0; font-size: 12px; flex-basis: 100%; }
+.af-jr-body { margin-top: 12px; }
+.af-jr-summary { font-size: 13px; display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+.af-jr-toolbar { display: flex; gap: 8px; margin-bottom: 8px; }
+.af-jr-filter {
+    flex: 1; min-width: 0; padding: 4px 8px; font-size: 13px;
+    border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-main); color: var(--text-main);
+}
+.af-jr-list {
+    max-height: 360px; overflow-y: auto; border: 1px solid var(--border);
+    border-radius: var(--radius); background: var(--bg-main);
+}
+.af-jr-group { border-bottom: 1px solid var(--border); }
+.af-jr-group:last-child { border-bottom: none; }
+.af-jr-group > summary {
+    display: flex; align-items: center; gap: 8px; padding: 6px 8px;
+    cursor: pointer; font-size: 13px; list-style: none;
+}
+.af-jr-group > summary::-webkit-details-marker { display: none; }
+.af-jr-group > summary::before { content: "▸"; color: var(--text-muted); width: 10px; }
+.af-jr-group[open] > summary::before { content: "▾"; }
+.af-jr-group > summary:hover { background: var(--bg-alt); }
+.af-jr-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.af-jr-size { color: var(--text-muted); font-size: 12px; white-space: nowrap; }
+.af-jr-files { padding: 2px 8px 8px 36px; }
+.af-jr-deadline { font-size: 11px; margin-bottom: 4px; }
+.af-jr-file { display: flex; align-items: center; gap: 8px; font-size: 12px; padding: 2px 0; cursor: pointer; }
+.af-jr-file code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* .af-modal form stacks its children in a column; this one is a single row. */
+.af-modal .af-jr-suspend-form { display: flex; flex-direction: row; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+/* .btn, forms and rows set display, which would otherwise override [hidden]. */
+.af-janitor-tab [hidden],
+.af-jr-controls [hidden],
+.af-op-janitor[hidden] { display: none !important; }
+
+/* Suspend/resume controls (Janitor tab and System → Operations). */
+.af-jr-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: flex-end; }
+.af-modal .af-jr-controls .af-jr-suspend-form { flex-basis: 100%; margin-top: 4px; }
+.af-op-janitor { flex-wrap: wrap; gap: 8px; }
+.af-op-janitor .af-operation-info { flex: 1 1 260px; min-width: 0; }
+.af-op-janitor .af-jr-status { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 4px 0 0; }
+.af-op-janitor-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: flex-end; flex: 1 1 240px; }
+.af-jr-head .af-jr-controls { flex: 1 1 240px; }
+.af-jr-head > div:first-child { flex: 2 1 300px; min-width: 0; }
+
+/* Janitor log */
+.af-jl-wrapper { max-height: 420px; overflow: auto; }
+.af-modal-maximized .af-jl-wrapper { max-height: 60vh; }
+.af-jl-table { table-layout: fixed; width: 100%; }
+.af-jl-table th:nth-child(1) { width: 150px; }
+.af-jl-table th:nth-child(2) { width: 110px; }
+.af-jl-table th:nth-child(4) { width: 30%; }
+.af-jl-table th:nth-child(5) { width: 90px; }
+.af-jl-path code, .af-jl-detail { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.af-jl-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; gap: 8px; }
+
+/* --- Settings dialog: resizable and maximizable --- */
+.af-modal.af-modal-settings {
+    width: min(640px, 95vw);
+    max-width: 95vw;
+    max-height: 95vh;
+    min-width: min(420px, 95vw);
+    min-height: 320px;
+    resize: both;
+}
+.af-modal.af-modal-settings.af-modal-maximized {
+    width: 95vw !important;
+    height: 92vh !important;
+    resize: none;
+}
+.af-modal-header-actions { display: flex; align-items: center; gap: 4px; }
+.af-modal-maximize { font-size: 16px; line-height: 1; padding: 4px 8px; }
+/* Let the review list use the extra room when maximized. */
+.af-modal-maximized .af-jr-list { max-height: 60vh; }

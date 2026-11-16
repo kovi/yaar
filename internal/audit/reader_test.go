@@ -240,3 +240,25 @@ func TestReadPage_SkipsInvalidLines(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, page.Entries, 3)
 }
+
+func TestReadPage_AnyOf(t *testing.T) {
+	a := writeEntries(t, []map[string]any{
+		makeEntry(0, "FILE_UPLOAD"),
+		makeEntry(1, "SYSTEM_CLEANUP"),
+		makeEntry(2, "FILE_DELETE"),
+		makeEntry(3, "SYSTEM_MAINTENANCE"),
+	})
+
+	page, err := a.ReadPage(ReadOptions{BeforeOffset: -1, Limit: 10, AnyOf: []string{"system_cleanup", "SYSTEM_MAINTENANCE"}})
+	require.NoError(t, err)
+	require.Len(t, page.Entries, 2)
+	for _, e := range page.Entries {
+		assert.Contains(t, []string{"SYSTEM_CLEANUP", "SYSTEM_MAINTENANCE"}, e["action"])
+	}
+
+	// Combined with Filter: both must match.
+	page, err = a.ReadPage(ReadOptions{BeforeOffset: -1, Limit: 10, Filter: "MAINTENANCE", AnyOf: []string{"SYSTEM_CLEANUP", "SYSTEM_MAINTENANCE"}})
+	require.NoError(t, err)
+	require.Len(t, page.Entries, 1)
+	assert.Equal(t, "SYSTEM_MAINTENANCE", page.Entries[0]["action"])
+}

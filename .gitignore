@@ -28,3 +28,4 @@ config.yml
 test-workdir
 artifactory-demo
 web/tools/biome
+yaar-migration-test

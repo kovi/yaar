@@ -7,6 +7,8 @@ import (
 
 	"github.com/glebarez/sqlite"
 	"github.com/kovi/yaar/internal/api"
+	"github.com/kovi/yaar/internal/models"
+	"github.com/kovi/yaar/internal/ptr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -218,8 +220,9 @@ func TestMigrateExpiryWithStreamAndGroup(t *testing.T) {
 	var stream api.Stream
 	require.NoError(t, db.First(&stream, group.StreamID).Error)
 	assert.Equal(t, "lumon:lib:master", stream.Name)
-	require.NotNil(t, stream.RetainLatest)
-	assert.True(t, *stream.RetainLatest, "policy_keep_latest should map to stream RetainLatest")
+	require.NotNil(t, stream.AutoExpirePrevious)
+	assert.True(t, *stream.AutoExpirePrevious, "policy_keep_latest should map to stream AutoExpirePrevious")
+	assert.Nil(t, stream.RetainLatest, "policy_keep_latest must not map to RetainLatest")
 
 	// Expiry recovery on the same row.
 	require.NotNil(t, r.ExpiryAfterUpload)
@@ -294,10 +297,11 @@ func TestExtractStreamAndGroupMigration(t *testing.T) {
 	var stream1 api.Stream
 	db.First(&stream1, group1.StreamID)
 	assert.Equal(t, "movies", stream1.Name)
-	assert.NotNil(t, stream1.RetainLatest)
-	assert.True(t, *stream1.RetainLatest, "Stream 'movies' should have RetainLatest set to true because file1 had PolicyKeepLatest=true")
+	// file1 is keep-latest but file2 in the same stream is not: converting
+	// would let the next upload expire file2, which eit-1 never did.
+	assert.False(t, ptr.Val(stream1.AutoExpirePrevious), "Stream 'movies' mixes keep-latest and plain files, so AutoExpirePrevious must stay unset")
 
-	// Verify 'music' stream does not have RetainLatest set to true
+	// Verify 'music' stream does not have AutoExpirePrevious set to true
 	var file3 api.MetaResource
 	db.Table("meta_resources").First(&file3, "path = ?", "/file3.txt")
 	var group3 api.Group
@@ -305,8 +309,8 @@ func TestExtractStreamAndGroupMigration(t *testing.T) {
 	var stream3 api.Stream
 	db.First(&stream3, group3.StreamID)
 	assert.Equal(t, "music", stream3.Name)
-	if stream3.RetainLatest != nil {
-		assert.False(t, *stream3.RetainLatest, "Stream 'music' should not have RetainLatest=true")
+	if stream3.AutoExpirePrevious != nil {
+		assert.False(t, *stream3.AutoExpirePrevious, "Stream 'music' should not have AutoExpirePrevious=true")
 	}
 
 	// file 4: empty
@@ -339,4 +343,156 @@ func TestExtractStreamAndGroupMigration(t *testing.T) {
 	assert.NotContains(t, columnTypes, "stream", "Old stream column should be dropped")
 	assert.NotContains(t, columnTypes, "group", "Old group column should be dropped")
 	assert.NotContains(t, columnTypes, "policy_keep_latest", "Old policy_keep_latest column should be dropped")
+}
+
+// TestMigrateBackfillsGroupDeadlines covers the eit-1 upgrade gap: the janitor
+// deletes grouped files only via Group.EffectiveDeleteAfter, which the earlier
+// migrations never set, so migrated groups were kept forever.
+func TestMigrateBackfillsGroupDeadlines(t *testing.T) {
+	db := freshDB(t)
+	require.NoError(t, db.Table("meta_resources").AutoMigrate(&oldExpirySchema{}))
+
+	now := time.Now().UTC().Truncate(time.Second)
+	day := 24 * time.Hour
+	trueVal := true
+	at := func(d time.Duration) *time.Time { t := now.Add(d); return &t }
+
+	rows := []oldExpirySchema{
+		// Finished feature branch: 14d expiry long past, no further uploads.
+		{ID: 1, Path: "/feat/a.bin", Stream: "feat", Group: "1", CreatedAt: now.Add(-30 * day), ExpiresAt: at(-16 * day)},
+		{ID: 2, Path: "/feat/b.bin", Stream: "feat", Group: "1", CreatedAt: now.Add(-30 * day), ExpiresAt: at(-16 * day)},
+		// Active branch: expiry still in the future.
+		{ID: 3, Path: "/live/a.bin", Stream: "live", Group: "9", CreatedAt: now.Add(-2 * day), ExpiresAt: at(12 * day)},
+		// Group with a file that never expires: group must stay without deadline.
+		{ID: 4, Path: "/keep/a.bin", Stream: "keep", Group: "1", CreatedAt: now.Add(-2 * day), ExpiresAt: at(12 * day)},
+		{ID: 5, Path: "/keep/b.bin", Stream: "keep", Group: "1", CreatedAt: now.Add(-2 * day)},
+		// Immutable member: group must stay without deadline.
+		{ID: 6, Path: "/lock/a.bin", Stream: "lock", Group: "1", CreatedAt: now.Add(-30 * day), ExpiresAt: at(-16 * day), Immutable: &trueVal},
+		// Keep-latest stream, inserted newest-first so row order != upload order.
+		// The old group was already expired by eit-1 rotation (non-whole-day offset).
+		{ID: 7, Path: "/master/new.bin", Stream: "master", Group: "200", PolicyKeepLatest: &trueVal, CreatedAt: now.Add(-1 * day)},
+		{ID: 8, Path: "/master/old.bin", Stream: "master", Group: "100", PolicyKeepLatest: &trueVal, CreatedAt: now.Add(-5 * day), ExpiresAt: at(-1*day + 37*time.Second)},
+	}
+	require.NoError(t, db.Table("meta_resources").Create(&rows).Error)
+
+	require.NoError(t, api.AutoMigrate(db))
+
+	group := func(path string) api.Group {
+		t.Helper()
+		r := resourceByPath(t, db, path)
+		require.NotNil(t, r.GroupID)
+		var g api.Group
+		require.NoError(t, db.Preload("Stream").First(&g, *r.GroupID).Error)
+		return g
+	}
+
+	feat := group("/feat/a.bin")
+	require.NotNil(t, feat.EffectiveDeleteAfter, "expired migrated group must get a deadline")
+	assert.False(t, feat.EffectiveDeleteAfter.After(time.Now()), "expired group deadline should be due")
+	assert.WithinDuration(t, now.Add(-30*day), feat.CreatedAt, time.Second, "group created_at should come from its oldest member")
+
+	live := group("/live/a.bin")
+	require.NotNil(t, live.EffectiveDeleteAfter)
+	assert.WithinDuration(t, now.Add(12*day), *live.EffectiveDeleteAfter, time.Minute)
+
+	assert.Nil(t, group("/keep/a.bin").EffectiveDeleteAfter, "group with a non-expiring file keeps no deadline")
+	assert.Nil(t, group("/lock/a.bin").EffectiveDeleteAfter, "group with an immutable file keeps no deadline")
+
+	newest := group("/master/new.bin")
+	oldest := group("/master/old.bin")
+	assert.True(t, newest.CreatedAt.After(oldest.CreatedAt), "latest group must follow upload time, not row order")
+	assert.Nil(t, newest.Stream.RetainLatest)
+	require.NotNil(t, newest.Stream.AutoExpirePrevious)
+	assert.True(t, *newest.Stream.AutoExpirePrevious)
+	assert.Nil(t, newest.EffectiveDeleteAfter, "newest keep-latest group keeps its own (absent) expiry")
+	require.NotNil(t, oldest.EffectiveDeleteAfter)
+	assert.False(t, oldest.EffectiveDeleteAfter.After(time.Now()), "rotated-out group should be due for deletion")
+}
+
+// TestBackfillLeavesRetainLatestHead checks the backfill respects a
+// RetainLatest stream configured on main: its latest group is never given a
+// deadline from member expiry, while older groups are.
+func TestBackfillLeavesRetainLatestHead(t *testing.T) {
+	db := freshDB(t)
+	require.NoError(t, api.AutoMigrate(db))
+
+	trueVal := true
+	s := api.Stream{Name: "rl", RetainLatest: &trueVal}
+	require.NoError(t, db.Create(&s).Error)
+	now := time.Now().UTC()
+	past := now.Add(-time.Hour)
+	g1 := api.Group{StreamID: s.ID, Name: "1", CreatedAt: now.Add(-48 * time.Hour)}
+	g2 := api.Group{StreamID: s.ID, Name: "2", CreatedAt: now.Add(-24 * time.Hour)}
+	require.NoError(t, db.Create(&g1).Error)
+	require.NoError(t, db.Create(&g2).Error)
+	require.NoError(t, db.Create(&api.MetaResource{Path: "/rl/1", GroupID: &g1.ID, DeleteAfter: &past}).Error)
+	require.NoError(t, db.Create(&api.MetaResource{Path: "/rl/2", GroupID: &g2.ID, DeleteAfter: &past}).Error)
+
+	// Re-run just the backfill migration.
+	require.NoError(t, db.Exec("DELETE FROM migrations WHERE id = ?", "202611111200_backfill_group_deadlines").Error)
+	require.NoError(t, api.AutoMigrate(db))
+
+	require.NoError(t, db.First(&g1, g1.ID).Error)
+	require.NoError(t, db.First(&g2, g2.ID).Error)
+	assert.NotNil(t, g1.EffectiveDeleteAfter, "older group gets its members' deadline")
+	assert.Nil(t, g2.EffectiveDeleteAfter, "latest group of a RetainLatest stream keeps no deadline")
+}
+
+func janitorSuspendedState(t *testing.T, db *gorm.DB) *models.SystemState {
+	t.Helper()
+	var states []models.SystemState
+	require.NoError(t, db.Where("key = ?", "janitor_suspended").Find(&states).Error)
+	if len(states) == 0 {
+		return nil
+	}
+	return &states[0]
+}
+
+// A migration that rewrites retention data must leave the janitor suspended so
+// an admin can review what it is about to delete.
+func TestMigrateSuspendsJanitorOnLegacyData(t *testing.T) {
+	db := freshDB(t)
+	require.NoError(t, db.Table("meta_resources").AutoMigrate(&oldExpirySchema{}))
+	now := time.Now().UTC()
+	exp := now.Add(-time.Hour)
+	require.NoError(t, db.Table("meta_resources").Create(&oldExpirySchema{
+		ID: 1, Path: "/a", Stream: "s", Group: "1", CreatedAt: now.Add(-48 * time.Hour), ExpiresAt: &exp,
+	}).Error)
+
+	require.NoError(t, api.AutoMigrate(db))
+	st := janitorSuspendedState(t, db)
+	require.NotNil(t, st, "janitor must be suspended after migrating legacy data")
+	assert.Contains(t, st.Value, "migration")
+
+	// Re-running AutoMigrate (next start) must not re-suspend after a resume.
+	require.NoError(t, api.ResumeJanitor(db))
+	require.NoError(t, api.AutoMigrate(db))
+	assert.Nil(t, janitorSuspendedState(t, db), "no migration ran, janitor stays resumed")
+}
+
+func TestMigrateFreshInstallDoesNotSuspendJanitor(t *testing.T) {
+	db := freshDB(t)
+	require.NoError(t, api.AutoMigrate(db))
+	assert.Nil(t, janitorSuspendedState(t, db))
+}
+
+// Only streams whose every file was keep-latest become AutoExpirePrevious.
+func TestMigrateMixedKeepLatestStream(t *testing.T) {
+	db := freshDB(t)
+	require.NoError(t, db.Table("meta_resources").AutoMigrate(&oldExpirySchema{}))
+	trueVal := true
+	now := time.Now().UTC()
+	require.NoError(t, db.Table("meta_resources").Create(&[]oldExpirySchema{
+		{ID: 1, Path: "/nav/0.1.0.zip", Stream: "nav", Group: "0.1.0", CreatedAt: now.Add(-24 * time.Hour)},
+		{ID: 2, Path: "/nav/abc.zip", Stream: "nav", Group: "abc", PolicyKeepLatest: &trueVal, CreatedAt: now},
+		{ID: 3, Path: "/ci/x.zip", Stream: "ci", Group: "1", PolicyKeepLatest: &trueVal, CreatedAt: now},
+	}).Error)
+	require.NoError(t, api.AutoMigrate(db))
+
+	var nav, ci api.Stream
+	require.NoError(t, db.Where("name = ?", "nav").First(&nav).Error)
+	require.NoError(t, db.Where("name = ?", "ci").First(&ci).Error)
+	assert.False(t, ptr.Val(nav.AutoExpirePrevious), "mixed stream must not expire its unflagged groups")
+	assert.True(t, ptr.Val(ci.AutoExpirePrevious))
+	assert.Nil(t, nav.RetainLatest)
 }

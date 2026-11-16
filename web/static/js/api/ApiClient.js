@@ -303,16 +303,47 @@ export const API = {
 		});
 	},
 
+	async getJanitorStatus() {
+		return apiFetch("/_/api/system/janitor/status");
+	},
+
+	async getPendingDeletions() {
+		return apiFetch("/_/api/system/janitor/pending");
+	},
+
+	async keepPending(groupIds, resourceIds) {
+		return apiFetch("/_/api/system/janitor/keep", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ group_ids: groupIds, resource_ids: resourceIds }),
+		});
+	},
+
+	async resumeJanitor() {
+		return apiFetch("/_/api/system/janitor/resume", { method: "POST" });
+	},
+
+	async suspendJanitor(reason) {
+		return apiFetch("/_/api/system/janitor/suspend", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ reason }),
+		});
+	},
+
 	async getAuditLog({
 		beforeOffset = -1,
 		generation = 0,
 		limit = 75,
 		filter = "",
+		any = [],
 	} = {}) {
 		const params = new URLSearchParams({ limit });
 		if (beforeOffset >= 0) params.set("before_offset", beforeOffset);
 		if (generation > 0) params.set("generation", generation);
 		if (filter) params.set("filter", filter);
+		// Entries matching at least one of these (OR), on top of `filter`.
+		for (const a of any) params.append("any", a);
 		return apiFetch(`${BASE_URL}/admin/audit-log?${params}`);
 	},
 };

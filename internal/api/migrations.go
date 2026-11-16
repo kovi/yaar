@@ -3,6 +3,7 @@ package api
 import (
 	"fmt"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/go-gormigrate/gormigrate/v2"
@@ -46,6 +47,11 @@ func AutoMigrate(db *gorm.DB) error {
 		_ = db.Exec("PRAGMA foreign_keys = ON").Error
 	}()
 
+	// Set by any migration that changed what the janitor will delete. The
+	// janitor is then suspended until an admin has reviewed the pending
+	// deletions and resumed it; see janitor_review.go.
+	var suspendReasons []string
+
 	m := gormigrate.New(db, gormigrate.DefaultOptions, []*gormigrate.Migration{
 		{
 			ID: "202605311000_extract_stream_and_group",
@@ -67,23 +73,35 @@ func AutoMigrate(db *gorm.DB) error {
 
 				// 2. Fetch unique streams and groups in Go
 				type OldMeta struct {
-					ID               uint   `gorm:"primaryKey"`
-					Stream           string `gorm:"column:stream"`
-					Group            string `gorm:"column:group"`
-					PolicyKeepLatest *bool  `gorm:"column:policy_keep_latest"`
+					ID               uint      `gorm:"primaryKey"`
+					Stream           string    `gorm:"column:stream"`
+					Group            string    `gorm:"column:group"`
+					PolicyKeepLatest *bool     `gorm:"column:policy_keep_latest"`
+					CreatedAt        time.Time `gorm:"column:created_at"`
 				}
 
 				var oldData []OldMeta
 				// We check if the columns exist first. If this is a fresh install, they won't.
 				if tx.Migrator().HasColumn(&MetaResource{}, "stream") {
-					if err := tx.Table("meta_resources").Select("id, stream, `group`, policy_keep_latest").Find(&oldData).Error; err != nil {
+					cols := "id, stream, `group`, policy_keep_latest"
+					if tx.Migrator().HasColumn(&MetaResource{}, "created_at") {
+						cols += ", created_at"
+					}
+					if err := tx.Table("meta_resources").Select(cols).Find(&oldData).Error; err != nil {
 						return err
 					}
 
 					// Process in Go
 					streams := make(map[string]uint)
 					groups := make(map[string]uint)
-					var assigned, retained int
+					// Earliest member upload per group. Groups are created here at
+					// migration time, which would make every migrated group look
+					// equally new and leave "latest group in stream" to row order.
+					groupCreated := make(map[uint]time.Time)
+					// Per stream: rows total and rows flagged keep-latest.
+					type keepCount struct{ total, keep int }
+					keepLatest := make(map[uint]*keepCount)
+					var assigned int
 
 					for _, row := range oldData {
 						streamName := row.Stream
@@ -122,6 +140,12 @@ func AutoMigrate(db *gorm.DB) error {
 								groups[groupKey] = groupID
 							}
 
+							if !row.CreatedAt.IsZero() {
+								if t, ok := groupCreated[groupID]; !ok || row.CreatedAt.Before(t) {
+									groupCreated[groupID] = row.CreatedAt
+								}
+							}
+
 							// Update record
 							if err := tx.Table("meta_resources").Where("id = ?", row.ID).Update("group_id", groupID).Error; err != nil {
 								return err
@@ -129,12 +153,57 @@ func AutoMigrate(db *gorm.DB) error {
 							assigned++
 						}
 
-						// Migrate PolicyKeepLatest to Stream.RetainLatest
-						if row.PolicyKeepLatest != nil && *row.PolicyKeepLatest && streamID != 0 {
-							if err := tx.Model(&Stream{}).Where("id = ?", streamID).Update("retain_latest", true).Error; err != nil {
-								return err
+						if streamID != 0 {
+							kc := keepLatest[streamID]
+							if kc == nil {
+								kc = &keepCount{}
+								keepLatest[streamID] = kc
 							}
-							retained++
+							kc.total++
+							if row.PolicyKeepLatest != nil && *row.PolicyKeepLatest {
+								kc.keep++
+							}
+						}
+					}
+
+					// Migrate PolicyKeepLatest to Stream.AutoExpirePrevious. In the
+					// old schema keep-latest expired the stream's previous groups as
+					// soon as a new group arrived, while the newest kept its own
+					// expiry — that is AutoExpirePrevious, not RetainLatest (which
+					// would make the newest group never expire).
+					//
+					// Old rotation only expired files that were themselves flagged,
+					// while AutoExpirePrevious expires every older group in the
+					// stream. A stream mixing flagged and unflagged files would lose
+					// the unflagged ones on its next upload, so only fully flagged
+					// streams are converted; mixed ones are logged for review.
+					var autoExpireStreams int
+					for streamID, kc := range keepLatest {
+						if kc.keep == 0 {
+							continue
+						}
+						if kc.keep < kc.total {
+							var st Stream
+							tx.First(&st, streamID)
+							logrus.WithFields(logrus.Fields{
+								"stream":      st.Name,
+								"keep_latest": kc.keep,
+								"resources":   kc.total,
+							}).Warn("migration 202605311000_extract_stream_and_group: stream mixes keep-latest and plain uploads, auto_expire_previous NOT set")
+							continue
+						}
+						if err := tx.Model(&Stream{}).Where("id = ?", streamID).Update("auto_expire_previous", true).Error; err != nil {
+							return err
+						}
+						autoExpireStreams++
+					}
+					if len(oldData) > 0 {
+						suspendReasons = append(suspendReasons, "migrated legacy streams and groups")
+					}
+
+					for groupID, createdAt := range groupCreated {
+						if err := tx.Model(&Group{}).Where("id = ?", groupID).UpdateColumn("created_at", createdAt).Error; err != nil {
+							return err
 						}
 					}
 
@@ -148,7 +217,7 @@ func AutoMigrate(db *gorm.DB) error {
 						"streams_created":     len(streams),
 						"groups_created":      len(groups),
 						"resources_assigned":  assigned,
-						"retain_latest_flags": retained,
+						"auto_expire_streams": autoExpireStreams,
 					}).Info("migration 202605311000_extract_stream_and_group: extracted streams and groups")
 				} else {
 					logrus.Info("migration 202605311000_extract_stream_and_group: no legacy stream column, nothing to extract")
@@ -197,6 +266,10 @@ func AutoMigrate(db *gorm.DB) error {
 					Where("expires_at IS NOT NULL").
 					Find(&rows).Error; err != nil {
 					return err
+				}
+
+				if len(rows) > 0 {
+					suspendReasons = append(suspendReasons, "recovered legacy expiry dates")
 				}
 
 				var relative, absolute, skipped int
@@ -253,13 +326,26 @@ func AutoMigrate(db *gorm.DB) error {
 				return nil
 			},
 		},
+		{
+			ID: "202611111200_backfill_group_deadlines",
+			Migrate: func(tx *gorm.DB) error {
+				set, err := backfillGroupDeadlines(tx)
+				if set > 0 {
+					suspendReasons = append(suspendReasons, "backfilled group deletion deadlines")
+				}
+				return err
+			},
+			Rollback: func(tx *gorm.DB) error {
+				return nil
+			},
+		},
 	})
 
 	if err := m.Migrate(); err != nil {
 		return err
 	}
 
-	return db.AutoMigrate(
+	if err := db.AutoMigrate(
 		&Stream{},
 		&Group{},
 		&MetaResource{},
@@ -267,5 +353,97 @@ func AutoMigrate(db *gorm.DB) error {
 		&models.User{},
 		&models.Token{},
 		&models.SystemState{},
-	)
+	); err != nil {
+		return err
+	}
+
+	if len(suspendReasons) > 0 {
+		reason := "migration: " + strings.Join(suspendReasons, ", ")
+		logrus.WithField("reason", reason).Warn("migration changed retention data: janitor suspended until an admin reviews pending deletions and resumes it")
+		return SuspendJanitor(db, reason)
+	}
+	return nil
+}
+
+// backfillGroupDeadlines fills in Group.EffectiveDeleteAfter for groups that
+// never got one. The janitor deletes grouped files only via the group deadline,
+// and earlier migrations created groups without computing it, so migrated
+// groups that never received another upload were kept forever regardless of
+// their files' expiry.
+//
+// Applies the same rule handleStreamRetention uses for groups other than the
+// one being saved: the latest group of a RetainLatest stream keeps no deadline
+// (or its RetainLatestMaxExpiry cap); every other group gets the latest of its
+// members' deadlines, or none if any member is immutable or has no expiry.
+// Groups whose deadline has already passed are deleted by the next janitor run.
+func backfillGroupDeadlines(tx *gorm.DB) (int, error) {
+	logrus.Info("migration 202611111200_backfill_group_deadlines: starting")
+
+	// On a fresh install meta_resources only has the columns earlier
+	// migrations touched; computeGroupDeadline needs the full model.
+	if err := tx.AutoMigrate(&Stream{}, &Group{}, &MetaResource{}); err != nil {
+		return 0, err
+	}
+
+	var groups []Group
+	if err := tx.Preload("Stream").Where("effective_delete_after IS NULL").Find(&groups).Error; err != nil {
+		return 0, fmt.Errorf("load groups: %w", err)
+	}
+
+	latestByStream := make(map[uint]uint)
+	latestGroup := func(streamID uint) (uint, error) {
+		if id, ok := latestByStream[streamID]; ok {
+			return id, nil
+		}
+		var g Group
+		if err := tx.Where("stream_id = ?", streamID).Order("created_at DESC, id DESC").Limit(1).Find(&g).Error; err != nil {
+			return 0, fmt.Errorf("load latest group: %w", err)
+		}
+		latestByStream[streamID] = g.ID
+		return g.ID, nil
+	}
+
+	ts := now()
+	var set, kept, past int
+	for _, g := range groups {
+		var deadline *time.Time
+
+		latestID, err := latestGroup(g.StreamID)
+		if err != nil {
+			return set, err
+		}
+		if g.ID == latestID && ptr.Val(g.Stream.RetainLatest) {
+			if g.Stream.RetainLatestMaxExpiry != nil {
+				if d, err := parseDuration(*g.Stream.RetainLatestMaxExpiry); err == nil {
+					deadline = ptr.Of(g.CreatedAt.Add(d))
+				}
+			}
+		} else {
+			deadline, err = computeGroupDeadline(tx, g.ID, &ts)
+			if err != nil {
+				return set, err
+			}
+		}
+
+		if deadline == nil {
+			kept++
+			continue
+		}
+		if err := tx.Model(&Group{}).Where("id = ?", g.ID).Update("effective_delete_after", deadline).Error; err != nil {
+			return set, fmt.Errorf("update group %d: %w", g.ID, err)
+		}
+		set++
+		if !deadline.After(ts) {
+			past++
+		}
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"groups_without_deadline": len(groups),
+		"deadlines_set":           set,
+		"already_past":            past,
+		"still_no_deadline":       kept,
+	}).Info("migration 202611111200_backfill_group_deadlines: backfilled group deadlines")
+
+	return set, nil
 }
