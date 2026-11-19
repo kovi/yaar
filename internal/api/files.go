@@ -346,6 +346,9 @@ func (h *Handler) HandleUpload(c *gin.Context) {
 			FirstOrCreate(&res).Error; err != nil {
 			return err
 		}
+		// The file is back; Assign skips nil fields, so clear the sync
+		// worker's missing mark explicitly (Save below writes it).
+		res.MissingSince = nil
 
 		if streamName != "" && groupName != "" {
 			if res.GroupID != nil {

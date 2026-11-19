@@ -10,7 +10,7 @@ import { showToast } from "./Toast.js";
 
 const REASON_LABEL = {
 	due: { text: "Due now", cls: "badge-danger" },
-	next_upload: { text: "On next upload", cls: "badge-warning" },
+	next_upload: { text: "On next change", cls: "badge-warning" },
 };
 
 const esc = (s) => Format.escapeHtml(String(s ?? ""));
@@ -189,7 +189,7 @@ async function renderPending(card, body) {
 		<div class="af-jr-summary">
 			<span><strong>${dueFiles}</strong> files, <strong>${Format.formatBytes(dueSize)}</strong> due now
 			(${due.length} groups, ${files.length} ungrouped)</span>
-			${nextUpload.length ? `<span>· <strong>${nextUpload.length}</strong> older groups go on the next upload to their stream</span>` : ""}
+			${nextUpload.length ? `<span>· <strong>${nextUpload.length}</strong> older groups go on the next upload or change in their stream</span>` : ""}
 		</div>
 		<div class="af-jr-toolbar">
 			<input type="search" class="af-input af-jr-filter" placeholder="Filter by stream, group or path">
@@ -228,7 +228,7 @@ async function renderPending(card, body) {
 				<span class="af-jr-size">${g.files.length} files · ${Format.formatBytes(g.size)}</span>
 			</summary>
 			<div class="af-jr-files">
-				${g.reason === "next_upload" ? `<div class="af-text-muted af-jr-deadline">Deleted when anything new is uploaded to stream ${esc(g.stream)}.</div>` : ""}
+				${g.reason === "next_upload" ? `<div class="af-text-muted af-jr-deadline">Deleted the next time any file in stream ${esc(g.stream)} is uploaded or changed (including a download that renews an expire-after-download policy).</div>` : ""}
 				${g.files.map((f) => fileRow(f, g.id)).join("")}
 			</div>
 		</details>`;

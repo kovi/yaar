@@ -3,6 +3,7 @@ package api
 import (
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 	"time"
 
@@ -50,10 +51,16 @@ func AutoMigrate(db *gorm.DB, auditor *audit.Auditor) error {
 		_ = db.Exec("PRAGMA foreign_keys = ON").Error
 	}()
 
-	// Set by any migration that changed what the janitor will delete. The
-	// janitor is then suspended until an admin has reviewed the pending
-	// deletions and resumed it; see janitor_review.go.
-	var suspendReasons []string
+	// Migrations that change what the janitor will delete suspend it until an
+	// admin has reviewed the pending deletions and resumed it (see
+	// janitor_review.go). The suspension is written by the migration itself,
+	// before it changes any data: gormigrate records each migration as soon as
+	// it finishes (no surrounding transaction), so a suspension deferred to the
+	// end would be lost if a later step failed and the restart skipped the
+	// already-applied migrations.
+	if err := db.AutoMigrate(&models.SystemState{}); err != nil {
+		return err
+	}
 
 	// Directories whose per-directory batch download mode was "merge"; recorded
 	// in the audit log once the migrations have committed.
@@ -96,6 +103,11 @@ func AutoMigrate(db *gorm.DB, auditor *audit.Auditor) error {
 					}
 					if err := tx.Table("meta_resources").Select(cols).Find(&oldData).Error; err != nil {
 						return err
+					}
+					if len(oldData) > 0 {
+						if err := suspendJanitorForMigration(tx, "migrated legacy streams and groups"); err != nil {
+							return err
+						}
 					}
 
 					// Process in Go
@@ -204,9 +216,6 @@ func AutoMigrate(db *gorm.DB, auditor *audit.Auditor) error {
 						}
 						autoExpireStreams++
 					}
-					if len(oldData) > 0 {
-						suspendReasons = append(suspendReasons, "migrated legacy streams and groups")
-					}
 
 					for groupID, createdAt := range groupCreated {
 						if err := tx.Model(&Group{}).Where("id = ?", groupID).UpdateColumn("created_at", createdAt).Error; err != nil {
@@ -276,7 +285,9 @@ func AutoMigrate(db *gorm.DB, auditor *audit.Auditor) error {
 				}
 
 				if len(rows) > 0 {
-					suspendReasons = append(suspendReasons, "recovered legacy expiry dates")
+					if err := suspendJanitorForMigration(tx, "recovered legacy expiry dates"); err != nil {
+						return err
+					}
 				}
 
 				var relative, absolute, skipped int
@@ -336,10 +347,7 @@ func AutoMigrate(db *gorm.DB, auditor *audit.Auditor) error {
 		{
 			ID: "202611111200_backfill_group_deadlines",
 			Migrate: func(tx *gorm.DB) error {
-				set, err := backfillGroupDeadlines(tx)
-				if set > 0 {
-					suspendReasons = append(suspendReasons, "backfilled group deletion deadlines")
-				}
+				_, err := backfillGroupDeadlines(tx)
 				return err
 			},
 			Rollback: func(tx *gorm.DB) error {
@@ -372,7 +380,7 @@ func AutoMigrate(db *gorm.DB, auditor *audit.Auditor) error {
 		}
 	}
 
-	if err := db.AutoMigrate(
+	return db.AutoMigrate(
 		&Stream{},
 		&Group{},
 		&MetaResource{},
@@ -380,16 +388,56 @@ func AutoMigrate(db *gorm.DB, auditor *audit.Auditor) error {
 		&models.User{},
 		&models.Token{},
 		&models.SystemState{},
-	); err != nil {
-		return err
-	}
+	)
+}
 
-	if len(suspendReasons) > 0 {
-		reason := "migration: " + strings.Join(suspendReasons, ", ")
-		logrus.WithField("reason", reason).Warn("migration changed retention data: janitor suspended until an admin reviews pending deletions and resumes it")
-		return SuspendJanitor(db, reason)
+// Separates the migration reasons from an admin suspension that was already
+// in place when the migration ran.
+const suspendedBeforeMigrationSep = "; suspended before migration: "
+
+// migrationSuspendReason adds reason to the stored suspension. The result
+// always starts with "migration: " (the UI keys the review flow off it);
+// reasons already present are not repeated (a failed migration re-runs), and
+// an earlier admin reason is kept rather than overwritten.
+func migrationSuspendReason(existing *string, reason string) string {
+	const prefix = "migration: "
+	if existing == nil {
+		return prefix + reason
 	}
-	return nil
+	prev := *existing
+	if !strings.HasPrefix(prev, prefix) {
+		return prefix + reason + suspendedBeforeMigrationSep + prev
+	}
+	head, admin, hasAdmin := strings.Cut(prev, suspendedBeforeMigrationSep)
+	reasons := strings.Split(strings.TrimPrefix(head, prefix), ", ")
+	if !slices.Contains(reasons, reason) {
+		reasons = append(reasons, reason)
+	}
+	out := prefix + strings.Join(reasons, ", ")
+	if hasAdmin {
+		out += suspendedBeforeMigrationSep + admin
+	}
+	return out
+}
+
+// suspendJanitorForMigration suspends the janitor on behalf of a migration
+// that is about to change retention data. Called before the change, so a
+// migration that fails part-way still leaves the janitor suspended.
+func suspendJanitorForMigration(tx *gorm.DB, reason string) error {
+	st, err := janitorSuspension(tx)
+	if err != nil {
+		return fmt.Errorf("check janitor suspension: %w", err)
+	}
+	var existing *string
+	if st != nil {
+		existing = &st.Value
+	}
+	value := migrationSuspendReason(existing, reason)
+	if existing != nil && *existing == value {
+		return nil
+	}
+	logrus.WithField("reason", value).Warn("migration changes retention data: janitor suspended until an admin reviews pending deletions and resumes it")
+	return SuspendJanitor(tx, value)
 }
 
 // backfillGroupDeadlines fills in Group.EffectiveDeleteAfter for groups that
@@ -432,6 +480,7 @@ func backfillGroupDeadlines(tx *gorm.DB) (int, error) {
 
 	ts := now()
 	var set, kept, past int
+	suspended := false
 	for _, g := range groups {
 		var deadline *time.Time
 
@@ -455,6 +504,12 @@ func backfillGroupDeadlines(tx *gorm.DB) (int, error) {
 		if deadline == nil {
 			kept++
 			continue
+		}
+		if !suspended {
+			if err := suspendJanitorForMigration(tx, "backfilled group deletion deadlines"); err != nil {
+				return set, err
+			}
+			suspended = true
 		}
 		if err := tx.Model(&Group{}).Where("id = ?", g.ID).Update("effective_delete_after", deadline).Error; err != nil {
 			return set, fmt.Errorf("update group %d: %w", g.ID, err)

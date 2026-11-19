@@ -76,8 +76,11 @@ func (h *Handler) janitorStatus() (JanitorStatus, error) {
 const (
 	// PendingDue: the deadline has passed; the next janitor run deletes it.
 	PendingDue = "due"
-	// PendingNextUpload: an older group of an auto_expire_previous stream; it
-	// is expired as soon as anything new is uploaded into the stream.
+	// PendingNextUpload: an older group of an auto_expire_previous stream. It
+	// is expired the next time any file in the stream is saved: an upload, a
+	// metadata change, or a download of a file with expire-after-download
+	// (handleStreamRetention runs on every MetaResource.Save). The value keeps
+	// its original name for API compatibility.
 	PendingNextUpload = "next_upload"
 )
 
@@ -146,7 +149,7 @@ func (h *Handler) pendingDeletions(at time.Time) (*PendingDeletions, error) {
 	}
 
 	// 2. Older groups of auto_expire_previous streams: handleStreamRetention
-	// sets their deadline to "now" on the next upload into the stream.
+	// sets their deadline to "now" on the next save of any file in the stream.
 	var streams []Stream
 	if err := h.DB.Where("auto_expire_previous = ?", true).Find(&streams).Error; err != nil {
 		return nil, fmt.Errorf("query streams: %w", err)

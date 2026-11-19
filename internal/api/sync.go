@@ -16,6 +16,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
+	"gorm.io/gorm"
 )
 
 type SyncController struct {
@@ -227,10 +228,30 @@ func (h *Handler) reconcileMissing(log *logrus.Entry, dbFiles map[string]MetaRes
 		expired := grace == 0 || isTransientFile(filepath.Base(path)) ||
 			(meta.MissingSince != nil && ts.Sub(*meta.MissingSince) >= grace)
 
+		// The walk can take a long time (hashing is throttled), and uploads keep
+		// running meanwhile. A file uploaded after the walk passed its
+		// directory is on disk now; the next pass sees it.
+		// (Transient files are on disk by design but never tracked.)
+		if !isTransientFile(filepath.Base(path)) && h.existsOnDisk(path) {
+			continue
+		}
+
 		if !expired {
 			if meta.MissingSince == nil {
-				if err := h.DB.Model(&MetaResource{}).Where("id = ?", meta.ID).UpdateColumn("missing_since", ts).Error; err != nil {
+				changed := false
+				if err := h.DB.Transaction(func(tx *gorm.DB) error {
+					ok, err := recordUnchanged(tx, &meta)
+					if err != nil || !ok {
+						changed = !ok
+						return err
+					}
+					return tx.Model(&MetaResource{}).Where("id = ?", meta.ID).UpdateColumn("missing_since", ts).Error
+				}); err != nil {
 					log.WithError(err).Errorf("Sync: failed to mark %s missing", path)
+					continue
+				}
+				if changed {
+					log.Debugf("Sync: %s changed during the walk, re-checking next pass", path)
 					continue
 				}
 				log.Warnf("Sync: %s is missing on disk; its record is kept until %s", path, ts.Add(grace).Format(time.RFC3339))
@@ -240,11 +261,27 @@ func (h *Handler) reconcileMissing(log *logrus.Entry, dbFiles map[string]MetaRes
 			continue
 		}
 
-		log.Infof("Sync: Removing ghost record from DB: %s", path)
-		if err := h.DB.Delete(&meta).Error; err != nil {
+		// Delete only the record the decision was based on. An upload that
+		// re-created the file after the snapshot rewrote the record (and
+		// cleared missing_since); deleting it would drop the stream, group and
+		// expiry it just set.
+		changed := false
+		if err := h.DB.Transaction(func(tx *gorm.DB) error {
+			ok, err := recordUnchanged(tx, &meta)
+			if err != nil || !ok {
+				changed = !ok
+				return err
+			}
+			return tx.Delete(&MetaResource{}, meta.ID).Error
+		}); err != nil {
 			log.WithError(err).Errorf("Sync: failed to remove record %s", path)
 			continue
 		}
+		if changed {
+			log.Debugf("Sync: %s changed during the walk, re-checking next pass", path)
+			continue
+		}
+		log.Infof("Sync: Removed ghost record from DB: %s", path)
 		h.Audit.Success("SYSTEM_SYNC_CLEANUP", path, "reason", "missing_on_disk", "missing_since", meta.MissingSince)
 		removed++
 
@@ -267,6 +304,36 @@ func (h *Handler) reconcileMissing(log *logrus.Entry, dbFiles map[string]MetaRes
 			"grace_period":   grace.String(),
 		}).Info("Sync: reconciled missing files")
 	}
+}
+
+// existsOnDisk reports whether urlPath is present in the data dir now.
+func (h *Handler) existsOnDisk(urlPath string) bool {
+	_, err := os.Lstat(h.fsPath(urlPath))
+	return err == nil
+}
+
+// recordUnchanged reports whether the record still matches the snapshot the
+// sync pass took before its walk. Anything that rewrote it since (an upload,
+// a metadata change, a move) makes the pass's missing-file decision stale.
+func recordUnchanged(tx *gorm.DB, snap *MetaResource) (bool, error) {
+	var cur []MetaResource
+	if err := tx.Where("id = ?", snap.ID).Limit(1).Find(&cur).Error; err != nil {
+		return false, err
+	}
+	if len(cur) == 0 {
+		return false, nil
+	}
+	c := cur[0]
+	return c.Path == snap.Path &&
+		c.UpdatedAt.Equal(snap.UpdatedAt) &&
+		sameTime(c.MissingSince, snap.MissingSince), nil
+}
+
+func sameTime(a, b *time.Time) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return a.Equal(*b)
 }
 
 // underAnyPath reports whether urlPath is one of roots or lies beneath one.

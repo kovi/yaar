@@ -100,8 +100,10 @@ func (r *MetaResource) handleStreamRetention(tx *gorm.DB) error {
 	now := now()
 
 	var latestGroup Group
+	// id breaks created_at ties, matching pendingDeletions and the
+	// group-deadline backfill, so the review page predicts the same group.
 	if err := tx.Where("stream_id = ?", stream.ID).
-		Order("created_at DESC").
+		Order("created_at DESC, id DESC").
 		Limit(1).
 		Find(&latestGroup).Error; err != nil {
 		return fmt.Errorf("load latest group: %w", err)

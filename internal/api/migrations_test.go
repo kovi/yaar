@@ -556,3 +556,59 @@ func TestMigrateDropsDownloadModeAndAuditsMergeDirs(t *testing.T) {
 	logData, _ = os.ReadFile(logPath)
 	assert.Equal(t, 2, strings.Count(string(logData), "migration_download_mode_dropped"))
 }
+
+// legacyNoPathSchema is a legacy table the full model cannot be applied to
+// (adding the NOT NULL path column to existing rows fails), so the migrations
+// after the stream/group extraction error out.
+type legacyNoPathSchema struct {
+	ID               uint `gorm:"primaryKey"`
+	Stream           string
+	Group            string
+	PolicyKeepLatest *bool
+	CreatedAt        time.Time
+}
+
+func (legacyNoPathSchema) TableName() string { return "meta_resources" }
+
+// gormigrate records each migration as soon as it finishes. If a later step
+// fails, the restart skips the migrations that already changed retention data,
+// so the suspension must be written by those migrations, not at the end.
+func TestMigrateSuspensionSurvivesLaterFailure(t *testing.T) {
+	db := freshDB(t)
+	require.NoError(t, db.AutoMigrate(&legacyNoPathSchema{}))
+	require.NoError(t, db.Create(&legacyNoPathSchema{ID: 1, Stream: "s", Group: "1", CreatedAt: time.Now().UTC()}).Error)
+
+	require.Error(t, api.AutoMigrate(db, nil), "the injected schema problem must fail a later migration")
+
+	var applied []string
+	require.NoError(t, db.Table("migrations").Pluck("id", &applied).Error)
+	require.Contains(t, applied, "202605311000_extract_stream_and_group", "the extraction itself succeeded and is recorded")
+
+	st := janitorSuspendedState(t, db)
+	require.NotNil(t, st, "janitor must stay suspended although the migration run failed")
+	assert.Equal(t, "migration: migrated legacy streams and groups", st.Value)
+}
+
+// A migration suspending an already suspended janitor keeps the admin's reason
+// and still leads with "migration: " so the UI offers the review flow.
+func TestMigrateKeepsAdminSuspensionReason(t *testing.T) {
+	db := freshDB(t)
+	require.NoError(t, db.AutoMigrate(&models.SystemState{}))
+	require.NoError(t, api.SuspendJanitor(db, "release freeze"))
+	require.NoError(t, db.Table("meta_resources").AutoMigrate(&oldExpirySchema{}))
+	now := time.Now().UTC()
+	exp := now.Add(-time.Hour)
+	require.NoError(t, db.Table("meta_resources").Create(&oldExpirySchema{
+		ID: 1, Path: "/a", Stream: "s", Group: "1", CreatedAt: now.Add(-48 * time.Hour), ExpiresAt: &exp,
+	}).Error)
+
+	require.NoError(t, api.AutoMigrate(db, nil))
+
+	st := janitorSuspendedState(t, db)
+	require.NotNil(t, st)
+	assert.True(t, strings.HasPrefix(st.Value, "migration: "), st.Value)
+	assert.Contains(t, st.Value, "migrated legacy streams and groups")
+	assert.Contains(t, st.Value, "recovered legacy expiry dates")
+	assert.True(t, strings.HasSuffix(st.Value, "; suspended before migration: release freeze"), st.Value)
+	assert.Equal(t, 1, strings.Count(st.Value, "migrated legacy streams and groups"), "reasons are not repeated")
+}

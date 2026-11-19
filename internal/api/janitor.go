@@ -304,10 +304,13 @@ func (h *Handler) deleteResource(log *logrus.Entry, r *MetaResource, reason stri
 	return nil
 }
 
+// cleanupGroupIfEmpty deletes the group once it has no members left. Members
+// that still have a deadline keep it: the group record carries the stream
+// retention for them, and fk_groups_members refuses the delete anyway.
 func (h *Handler) cleanupGroupIfEmpty(groupID *uint) error {
 	var count int64
 	if err := h.DB.Model(&MetaResource{}).
-		Where("group_id = ? AND delete_after IS NULL", *groupID).
+		Where("group_id = ?", *groupID).
 		Count(&count).Error; err != nil {
 		return err
 	}
