@@ -105,7 +105,7 @@ func AutoMigrate(db *gorm.DB, auditor *audit.Auditor) error {
 						return err
 					}
 					if len(oldData) > 0 {
-						if err := suspendJanitorForMigration(tx, "migrated legacy streams and groups"); err != nil {
+						if err := suspendJanitorForMigration(tx, auditor, "migrated legacy streams and groups"); err != nil {
 							return err
 						}
 					}
@@ -285,7 +285,7 @@ func AutoMigrate(db *gorm.DB, auditor *audit.Auditor) error {
 				}
 
 				if len(rows) > 0 {
-					if err := suspendJanitorForMigration(tx, "recovered legacy expiry dates"); err != nil {
+					if err := suspendJanitorForMigration(tx, auditor, "recovered legacy expiry dates"); err != nil {
 						return err
 					}
 				}
@@ -347,7 +347,7 @@ func AutoMigrate(db *gorm.DB, auditor *audit.Auditor) error {
 		{
 			ID: "202611111200_backfill_group_deadlines",
 			Migrate: func(tx *gorm.DB) error {
-				_, err := backfillGroupDeadlines(tx)
+				_, err := backfillGroupDeadlines(tx, auditor)
 				return err
 			},
 			Rollback: func(tx *gorm.DB) error {
@@ -423,7 +423,11 @@ func migrationSuspendReason(existing *string, reason string) string {
 // suspendJanitorForMigration suspends the janitor on behalf of a migration
 // that is about to change retention data. Called before the change, so a
 // migration that fails part-way still leaves the janitor suspended.
-func suspendJanitorForMigration(tx *gorm.DB, reason string) error {
+//
+// The suspension is also audited (when auditor is non-nil) as a
+// janitor_suspend by "system", so the janitor log shows when and why it
+// stopped, not only the later resume.
+func suspendJanitorForMigration(tx *gorm.DB, auditor *audit.Auditor, reason string) error {
 	st, err := janitorSuspension(tx)
 	if err != nil {
 		return fmt.Errorf("check janitor suspension: %w", err)
@@ -437,7 +441,16 @@ func suspendJanitorForMigration(tx *gorm.DB, reason string) error {
 		return nil
 	}
 	logrus.WithField("reason", value).Warn("migration changes retention data: janitor suspended until an admin reviews pending deletions and resumes it")
-	return SuspendJanitor(tx, value)
+	if err := SuspendJanitor(tx, value); err != nil {
+		return err
+	}
+	if auditor != nil {
+		auditor.Success("SYSTEM_MAINTENANCE", "janitor",
+			"operation", "janitor_suspend",
+			"reason", value,
+			"migration_reason", reason)
+	}
+	return nil
 }
 
 // backfillGroupDeadlines fills in Group.EffectiveDeleteAfter for groups that
@@ -451,7 +464,7 @@ func suspendJanitorForMigration(tx *gorm.DB, reason string) error {
 // (or its RetainLatestMaxExpiry cap); every other group gets the latest of its
 // members' deadlines, or none if any member is immutable or has no expiry.
 // Groups whose deadline has already passed are deleted by the next janitor run.
-func backfillGroupDeadlines(tx *gorm.DB) (int, error) {
+func backfillGroupDeadlines(tx *gorm.DB, auditor *audit.Auditor) (int, error) {
 	logrus.Info("migration 202611111200_backfill_group_deadlines: starting")
 
 	// On a fresh install meta_resources only has the columns earlier
@@ -506,7 +519,7 @@ func backfillGroupDeadlines(tx *gorm.DB) (int, error) {
 			continue
 		}
 		if !suspended {
-			if err := suspendJanitorForMigration(tx, "backfilled group deletion deadlines"); err != nil {
+			if err := suspendJanitorForMigration(tx, auditor, "backfilled group deletion deadlines"); err != nil {
 				return set, err
 			}
 			suspended = true

@@ -56,7 +56,11 @@ Yaar works like a standard web server. You can use standard tools like `curl`, `
 
 - `GET /*path` - Download a file. *(anonymous)*
 - `HEAD /*path` - Get file metadata (size, checksums, type). *(anonymous)*
-- `PUT /*path` - Upload a file via raw binary stream. *(auth required)*
+- `PUT /*path` - Upload a file via raw binary stream, replacing any existing file. *(auth required)*
+- `POST /*path` - Upload without overwriting: `409` if the path already exists. *(auth required)*
+
+Both also accept `multipart/form-data` with the file in the `file` field; the URL is then the target
+directory and the form's filename is appended.
 - `DELETE /*path` - Delete a file. *(auth required)*
 
 `GET` supports HTTP range requests (`Range: bytes=...`), so large artifacts can be resumed or fetched in parts.
@@ -86,8 +90,24 @@ Admin-only system endpoints:
 - `POST /_/api/system/vacuum` - Manually trigger database vacuuming. VACUUM also runs
   automatically every `AF_VACUUM_INTERVAL` (default weekly); this endpoint is for reclaiming
   space immediately after a large cleanup rather than waiting for the next run.
+- `POST /_/api/system/sync` - Start a filesystem reconciliation now instead of waiting for the
+  hourly run.
 - `GET /_/api/system/janitor/errors` - View background cleanup errors.
 - `DELETE /_/api/system/janitor/errors/:key` - Clear a specific cleanup error.
+- `GET /_/api/system/janitor/status` - Whether the janitor is suspended, why, and since when.
+- `GET /_/api/system/janitor/pending` - What the janitor would delete: groups past their deadline,
+  older groups of `auto_expire_previous` streams, and ungrouped files past their own deadline.
+- `POST /_/api/system/janitor/keep` - Keep pending files by locking them (immutable). Body:
+  `{"group_ids": [...], "resource_ids": [...]}`.
+- `POST /_/api/system/janitor/suspend` - Suspend the janitor. Optional body `{"reason": "..."}`.
+- `POST /_/api/system/janitor/resume` - Resume it.
+- `GET /_/api/v1/admin/audit-log` - Read the audit log, newest first. Parameters: `limit` (max
+  200), `filter` (case-insensitive text match on the whole entry), `any` (repeatable; keeps entries
+  whose `action` or `operation` starts with one of the values, e.g. `any=SYSTEM_CLEANUP&any=janitor_`),
+  and the paging cursors `before_offset`/`generation` described in
+  [Audit log rotation](#audit-log-rotation).
+
+See [Janitor](#janitor) for how suspension and review work.
 
 ### Retention Policies
 Set retention policies at upload time via HTTP headers or later via PATCH request.
@@ -96,7 +116,7 @@ Example upload headers:
 - `Yaar-Retention-Expire-After-Upload: 30d` (Expires 30 days after upload)
 - `Yaar-Retention-Expire-After-Download: 7d` (Keeps the file alive as long as it's downloaded at least once a week)
 - `Yaar-Retention-Expire-At: 2026-12-31T00:00:00Z` (Expires at an absolute timestamp)
-- `Yaar-Retention-Immutable: true` (Prevents deletion or modification)
+- `Yaar-Retention-Immutable: true` (Prevents deletion or modification, including overwriting uploads, which get `403`)
 - `Yaar-Retention-Auto-Prune: true` (Directory: auto-delete when it becomes empty)
 - `Yaar-Retention-Prune-Children: true` (Directory: delete child directories when they become empty)
 
@@ -113,6 +133,20 @@ Streams group related files together so they expire as a single unit. For exampl
 To upload a file to a stream, add these headers:
 `Yaar-Stream: releases`
 `Yaar-Group: v1.0`
+
+A file belongs to one group. Re-uploading it into the same group overwrites it; uploading it into a
+different group is refused with `409`.
+
+Stream policies (JSON body of `PUT`/`PATCH`):
+
+- `auto_expire_previous: true` - When a newer group exists, every older group expires on the next
+  upload or change in the stream. The latest group keeps its files' own expiry.
+- `retain_latest: true` - The latest group never expires, whatever its files' expiry says.
+  `retain_latest_max_expiry: "90d"` caps that, counted from the group's creation.
+
+Without either, a group expires once the last of its files' deadlines has passed. A single locked
+file, or a file without expiry, keeps the whole group: files in a group expire with the group, not
+on their own dates.
 
 ## Authentication
 
@@ -168,6 +202,26 @@ Failed logins are rate limited per username and client IP: 5 failures trigger a 
 from 1 minute up to 1 hour, and the response carries `Retry-After`. Both successful and failed
 logins are recorded in the audit log as `USER_LOGIN`.
 
+### Janitor
+
+The janitor runs every 30 seconds and deletes what has expired: groups past their deadline and
+ungrouped files past their own. Locked (immutable) files and protected paths are never deleted.
+Failures are retried with backoff and listed under *Settings → Janitor*.
+
+**Suspension.** While the janitor is suspended it deletes nothing; expired files wait until it is
+resumed. An admin can suspend it at any time (e.g. during a release freeze), and a database
+migration that changes retention data suspends it on its own (see
+[Upgrading](#upgrading-from-the-pre-streams-version)). It stays suspended across restarts until an
+admin resumes it.
+
+**Review.** *Settings → Janitor* lists every pending deletion with its reason, size and deadline.
+*Keep* locks the selected files so they survive; unlock them later in the file browser and their
+normal expiry applies again. A locked file also refuses overwriting uploads (`403`), so keeping
+a path a CI job re-uploads will make that job fail until the file is unlocked.
+
+Suspensions, resumes, kept files and every deletion are in the audit log; the *Janitor log* card
+shows just those entries.
+
 ### APIs
 
 - `POST /_/api/login` - Login to get a JWT.
@@ -217,7 +271,7 @@ so an unconfigured instance fails fast rather than booting with a public key.
 | Vacuum Interval | `AF_VACUUM_INTERVAL` | — | `168h` |
 | Log Level | `AF_LOG_LEVEL` | `--log-level` | `info` |
 | Protected Paths | `AF_PROTECTED_PATHS` | — | (None) |
-| Missing-File Grace Period | `AF_MISSING_GRACE_PERIOD` | — | `168h` |
+| Missing-File Grace Period | `AF_MISSING_GRACE_PERIOD` | — | `7d` |
 
 *The scheduled VACUUM holds the single SQLite connection while it runs, so requests block for its
 duration — hence the weekly default. Set `AF_VACUUM_INTERVAL=0` to disable it and rely on the admin
@@ -300,10 +354,45 @@ docker compose up -d --build
 The config file is passed with `-config`, so a missing file stops the server instead of silently
 starting without protected paths.
 
+### TLS
+
+**Yaar serves plain HTTP and has no TLS support of its own.** Credentials — JWTs and API tokens —
+travel in the `Authorization` header in cleartext, so anything that can observe the network can
+replay them.
+
+Run it behind a TLS-terminating reverse proxy (nginx, Caddy, Traefik) for any deployment that leaves
+a trusted network. The storage tree is world-readable by design (see
+[Security Model](#security-model--read-this-first)), so the proxy is also the right place to
+restrict *who can reach the service at all* — the same scoping the file share it replaces would have
+had.
+
+### Graceful shutdown
+
+Yaar shuts down gracefully on `SIGINT`/`SIGTERM`: it stops accepting new connections and lets
+in-flight uploads finish (up to 30 seconds) before exiting, so `docker stop` will not truncate an
+artifact mid-write.
+
 ### Upgrading from the pre-streams version
 
-The database is migrated automatically on first start. Migrations that change what the janitor
-would delete suspend it; review the pending deletions under *Settings → Janitor* and resume it.
+Back up the database file before the first start of the new version. The database is then
+migrated automatically; the migration log lines start with `migration 2026…` and end with a
+summary of what each step changed.
+
+Migrations that change what the janitor would delete suspend it before changing anything, so a
+migration that fails part-way still leaves it suspended. Review the pending deletions under
+*Settings → Janitor* (see [Janitor](#janitor)), keep what must survive, and resume it.
+
+What the data migration does:
+
+- `stream`/`group` columns become streams and groups. A group without a stream goes into the
+  `default` stream. Groups take the upload time of their oldest file, so "latest group" matches the
+  original upload order.
+- Keep-latest becomes `auto_expire_previous` on the stream. A stream that mixed keep-latest and
+  plain uploads is left unconverted (its plain uploads would otherwise be expired) and logged as a
+  warning for review.
+- `expires_at` becomes a relative expiry (`7d`, ...) when it lies a whole number of days after the
+  upload, otherwise an absolute date.
+- Group deletion deadlines are computed for every migrated group.
 
 Clients need updating — the old headers are rejected with `400 LEGACY_HEADER` (naming the
 replacement) rather than silently ignored:
@@ -318,17 +407,3 @@ replacement) rather than silently ignored:
 The per-directory batch download mode no longer exists: batch downloads default to `literal`,
 and `?mode=merge` (or *Download merged* in the UI) selects merge. Directories that were set to
 `merge` are listed in the migration log and in the audit log (`migration_download_mode_dropped`).
-
-**Yaar serves plain HTTP and has no TLS support of its own.** Credentials — JWTs and API tokens —
-travel in the `Authorization` header in cleartext, so anything that can observe the network can
-replay them.
-
-Run it behind a TLS-terminating reverse proxy (nginx, Caddy, Traefik) for any deployment that leaves
-a trusted network. The storage tree is world-readable by design (see
-[Security Model](#security-model--read-this-first)), so the proxy is also the right place to
-restrict *who can reach the service at all* — the same scoping the file share it replaces would have
-had.
-
-Yaar shuts down gracefully on `SIGINT`/`SIGTERM`: it stops accepting new connections and lets
-in-flight uploads finish (up to 30 seconds) before exiting, so `docker stop` will not truncate an
-artifact mid-write.

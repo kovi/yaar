@@ -612,3 +612,42 @@ func TestMigrateKeepsAdminSuspensionReason(t *testing.T) {
 	assert.True(t, strings.HasSuffix(st.Value, "; suspended before migration: release freeze"), st.Value)
 	assert.Equal(t, 1, strings.Count(st.Value, "migrated legacy streams and groups"), "reasons are not repeated")
 }
+
+// The suspension a migration writes is audited like an admin's, so the janitor
+// log shows when and why the janitor stopped, not only the later resume.
+func TestMigrateSuspensionIsAudited(t *testing.T) {
+	db := freshDB(t)
+	require.NoError(t, db.Table("meta_resources").AutoMigrate(&oldExpirySchema{}))
+	now := time.Now().UTC()
+	exp := now.Add(-time.Hour)
+	require.NoError(t, db.Table("meta_resources").Create(&oldExpirySchema{
+		ID: 1, Path: "/a", Stream: "s", Group: "1", CreatedAt: now.Add(-48 * time.Hour), ExpiresAt: &exp,
+	}).Error)
+
+	logPath := filepath.Join(t.TempDir(), "audit.log")
+	aud, err := audit.NewAuditor(logPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { aud.Close() })
+
+	require.NoError(t, api.AutoMigrate(db, aud))
+
+	page, err := aud.ReadPage(audit.ReadOptions{BeforeOffset: -1, Limit: 50, AnyOf: []string{"janitor_"}})
+	require.NoError(t, err)
+	var reasons []string
+	for _, e := range page.Entries {
+		assert.Equal(t, "janitor_suspend", e["operation"])
+		assert.Equal(t, "system", e["user"])
+		reasons = append(reasons, e["migration_reason"].(string))
+	}
+	assert.ElementsMatch(t, []string{
+		"migrated legacy streams and groups",
+		"recovered legacy expiry dates",
+		"backfilled group deletion deadlines",
+	}, reasons, "one entry per migration that suspended")
+
+	// A second start runs no migration and audits nothing new.
+	require.NoError(t, api.AutoMigrate(db, aud))
+	page, err = aud.ReadPage(audit.ReadOptions{BeforeOffset: -1, Limit: 50, AnyOf: []string{"janitor_"}})
+	require.NoError(t, err)
+	assert.Len(t, page.Entries, len(reasons))
+}
