@@ -19,8 +19,11 @@ type ReadOptions struct {
 	BeforeOffset int64  // scan backward from here; -1 = start from EOF
 	Limit        int    // max entries; default 50, max 200
 	Filter       string // case-insensitive substring match on raw JSON line
-	// AnyOf, when non-empty, keeps only lines containing at least one of these
-	// case-insensitive substrings. Combined with Filter (both must match).
+	// AnyOf, when non-empty, keeps only entries whose action or operation
+	// field starts with at least one of these (case-insensitive), e.g.
+	// "SYSTEM_CLEANUP" or "janitor_". Matching the fields rather than the raw
+	// line keeps a path or tag that happens to contain the text from pulling
+	// in unrelated entries. Combined with Filter (both must match).
 	AnyOf        []string
 	MaxScanBytes int64 // 0 = 50 MB default
 	// Generation selects which file to read: 0 is the live audit.log, 1 is
@@ -268,6 +271,10 @@ outer:
 			if err := json.Unmarshal(line, &entry); err != nil {
 				continue
 			}
+			// The raw-line check above is only a cheap prefilter for AnyOf.
+			if len(anyLower) > 0 && !fieldHasAnyPrefix(entry, anyLower) {
+				continue
+			}
 
 			lineStart := readStart + int64(lineStartOffset(lines, i))
 			entries = append(entries, entry)
@@ -310,6 +317,25 @@ func clone(b []byte) []byte {
 	c := make([]byte, len(b))
 	copy(c, b)
 	return c
+}
+
+// anyOfFields are the entry fields AnyOf matches against.
+var anyOfFields = []string{"action", "operation"}
+
+func fieldHasAnyPrefix(entry map[string]any, prefixes [][]byte) bool {
+	for _, f := range anyOfFields {
+		v, ok := entry[f].(string)
+		if !ok {
+			continue
+		}
+		lv := []byte(strings.ToLower(v))
+		for _, p := range prefixes {
+			if bytes.HasPrefix(lv, p) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func containsAny(line []byte, subs [][]byte) bool {

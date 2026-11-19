@@ -15,6 +15,11 @@ const REASON_LABEL = {
 
 const esc = (s) => Format.escapeHtml(String(s ?? ""));
 
+// Shown on the Keep controls: locking is what keeps a file, and it also
+// refuses overwrites, which a CI job re-uploading the same path would hit.
+const LOCK_NOTE =
+	"Kept files are locked: uploads that overwrite the same path are rejected (403) until you unlock them in the file browser.";
+
 export function isMigrationSuspension(status) {
 	return !!status?.suspended && /^migration:/.test(status.reason || "");
 }
@@ -193,7 +198,7 @@ async function renderPending(card, body) {
 		</div>
 		<div class="af-jr-toolbar">
 			<input type="search" class="af-input af-jr-filter" placeholder="Filter by stream, group or path">
-			<button class="btn btn-ghost btn-sm af-jr-keep" disabled>Keep selected</button>
+			<button class="btn btn-ghost btn-sm af-jr-keep" disabled title="${esc(LOCK_NOTE)}">Keep selected</button>
 		</div>
 		<div class="af-jr-list"></div>
 		<p class="af-jr-hint af-text-muted">Keep locks the files (immutable). Unlock them later in the
@@ -222,7 +227,7 @@ async function renderPending(card, body) {
 		return `
 		<details class="af-jr-group" data-search="${esc(search)}">
 			<summary>
-				<input type="checkbox" class="af-jr-cb-group" data-id="${g.id}" title="Keep the whole group">
+				<input type="checkbox" class="af-jr-cb-group" data-id="${g.id}" title="${esc(`Keep the whole group. ${LOCK_NOTE}`)}">
 				<span class="badge ${r.cls}">${r.text}</span>
 				<span class="af-jr-name"><span class="af-text-muted">${esc(g.stream)}</span> / <strong>${esc(g.group)}</strong></span>
 				<span class="af-jr-size">${g.files.length} files · ${Format.formatBytes(g.size)}</span>

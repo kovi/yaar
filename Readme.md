@@ -226,7 +226,7 @@ endpoint alone.*
 *The sync worker reconciles the database with the data directory every hour. A file that has
 disappeared from disk is first only marked missing; its record — tags, expiry, stream/group — is
 deleted once it has been missing for `missing_grace_period` (`storage.missing_grace_period` in
-`config.yml`, a Go duration). If the file comes back, for example after a forgotten mount is
+`config.yml`: days such as `7d`, or a Go duration such as `168h`; default 7 days). If the file comes back, for example after a forgotten mount is
 restored, the mark is cleared and nothing is lost. Admins see a warning in the System tab while any
 records are marked missing. A data directory that does not exist, or a subdirectory that cannot be
 read, is never treated as "missing". Set `0` to delete records on the first miss.*

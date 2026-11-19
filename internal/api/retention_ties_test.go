@@ -66,3 +66,34 @@ func TestCleanupGroupIfEmptyKeepsGroupWithMembers(t *testing.T) {
 	require.NoError(t, h.DB.Model(&Group{}).Where("id = ?", g.ID).Count(&n).Error)
 	assert.Zero(t, n, "group is removed with its last member")
 }
+
+// An older group whose files were all kept (locked) in the janitor review is
+// not re-expired by every save in an auto_expire_previous stream; one with an
+// unlocked file, or no files at all, still is.
+func TestStreamRetentionSkipsFullyLockedOlderGroups(t *testing.T) {
+	h := newRaceHandler(t, time.Hour)
+	s := Stream{Name: "kept", AutoExpirePrevious: ptr.Of(true)}
+	require.NoError(t, h.DB.Create(&s).Error)
+	base := time.Now().UTC().Add(-time.Hour)
+	mk := func(name string, offset time.Duration) Group {
+		g := Group{StreamID: s.ID, Name: name, CreatedAt: base.Add(offset)}
+		require.NoError(t, h.DB.Create(&g).Error)
+		return g
+	}
+	locked, mixed, empty, latest := mk("locked", 0), mk("mixed", time.Minute), mk("empty", 2*time.Minute), mk("latest", 3*time.Minute)
+	require.NoError(t, h.DB.Create(&MetaResource{Path: "/k/l1", GroupID: &locked.ID, Immutable: ptr.Of(true)}).Error)
+	require.NoError(t, h.DB.Create(&MetaResource{Path: "/k/l2", GroupID: &locked.ID, Immutable: ptr.Of(true)}).Error)
+	require.NoError(t, h.DB.Create(&MetaResource{Path: "/k/m1", GroupID: &mixed.ID, Immutable: ptr.Of(true)}).Error)
+	require.NoError(t, h.DB.Create(&MetaResource{Path: "/k/m2", GroupID: &mixed.ID}).Error)
+
+	r := MetaResource{Path: "/k/new", GroupID: &latest.ID}
+	require.NoError(t, r.Save(h.DB))
+
+	reload := func(g *Group) { require.NoError(t, h.DB.First(g, g.ID).Error) }
+	reload(&locked)
+	reload(&mixed)
+	reload(&empty)
+	assert.Nil(t, locked.EffectiveDeleteAfter, "fully locked group has nothing to expire")
+	assert.NotNil(t, mixed.EffectiveDeleteAfter, "unlocked member still expires")
+	assert.NotNil(t, empty.EffectiveDeleteAfter, "empty group is still cleaned up")
+}

@@ -162,9 +162,14 @@ function LogCard() {
 	let beforeOffset = -1;
 	let generation = 0;
 	let loading = false;
+	// Each request gets a number; only the latest one may update the table.
+	// A reset (new filter) supersedes whatever is in flight instead of being
+	// dropped, so the table always matches the filter box.
+	let seq = 0;
 
 	async function load(reset) {
-		if (loading) return;
+		if (loading && !reset) return; // "Load more" while busy: ignore
+		const mine = ++seq;
 		loading = true;
 		if (reset) {
 			beforeOffset = -1;
@@ -180,6 +185,7 @@ function LogCard() {
 				filter: filter.value.trim(),
 				any: LOG_SOURCES,
 			});
+			if (mine !== seq) return; // superseded by a newer request
 			if (reset) tbody.innerHTML = "";
 			tbody.insertAdjacentHTML(
 				"beforeend",
@@ -207,11 +213,14 @@ function LogCard() {
 				? "Stopped scanning a very large log; load more to continue."
 				: "";
 		} catch (e) {
+			if (mine !== seq) return;
 			if (reset) tbody.innerHTML = "";
 			note.textContent = `Failed to load: ${e.message}`;
 		} finally {
-			loading = false;
-			more.disabled = false;
+			if (mine === seq) {
+				loading = false;
+				more.disabled = false;
+			}
 		}
 	}
 

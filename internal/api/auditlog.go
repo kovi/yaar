@@ -41,8 +41,9 @@ func (h *Handler) GetAuditLog(c *gin.Context) {
 	}
 
 	opts.Filter = c.Query("filter")
-	// ?any=a&any=b keeps entries matching at least one value (OR); used by
-	// views that follow several actions at once, e.g. the janitor log.
+	// ?any=a&any=b keeps entries whose action or operation starts with at
+	// least one value (OR); used by views that follow several actions at
+	// once, e.g. the janitor log.
 	if anyOf := c.QueryArray("any"); len(anyOf) > 0 {
 		if len(anyOf) > 10 {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "too many any values (max 10)"})

@@ -126,7 +126,16 @@ func (r *MetaResource) handleStreamRetention(tx *gorm.DB) error {
 				}
 			}
 		} else if ptr.Val(stream.AutoExpirePrevious) && g.ID != latestGroup.ID {
-			effectiveDeadline = &now
+			// A group whose members are all locked (e.g. kept in the janitor
+			// review) has nothing to expire. Re-arming it on every save would
+			// only make the janitor skip it again and log a failure per file.
+			locked, err := allMembersLocked(tx, g.ID)
+			if err != nil {
+				return err
+			}
+			if !locked {
+				effectiveDeadline = &now
+			}
 		} else {
 			var currentResourceDeadline *time.Time
 			if g.ID == group.ID {
@@ -147,6 +156,19 @@ func (r *MetaResource) handleStreamRetention(tx *gorm.DB) error {
 	}
 
 	return nil
+}
+
+// allMembersLocked reports whether the group has members and every one of
+// them is immutable. An empty group is not "locked": the janitor removes it.
+func allMembersLocked(tx *gorm.DB, groupID uint) (bool, error) {
+	var counts struct{ Total, Unlocked int64 }
+	if err := tx.Model(&MetaResource{}).
+		Select("COUNT(*) AS total, COALESCE(SUM(CASE WHEN immutable IS NULL OR immutable = false THEN 1 ELSE 0 END), 0) AS unlocked").
+		Where("group_id = ?", groupID).
+		Scan(&counts).Error; err != nil {
+		return false, fmt.Errorf("count locked members: %w", err)
+	}
+	return counts.Total > 0 && counts.Unlocked == 0, nil
 }
 
 func (r *MetaResource) computeOwnDeadline() *time.Time {

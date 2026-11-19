@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -110,4 +111,29 @@ func TestFinalize_JwtSecret(t *testing.T) {
 		}
 		assert.Error(t, c.Finalize(), "config.example.yml must not boot unmodified")
 	})
+}
+
+func TestFinalize_MissingGracePeriod(t *testing.T) {
+	for in, want := range map[string]time.Duration{
+		"":     7 * 24 * time.Hour,
+		"7d":   7 * 24 * time.Hour,
+		" 1d ": 24 * time.Hour,
+		"168h": 168 * time.Hour,
+		"36h":  36 * time.Hour,
+		"0":    0,
+		"0d":   0,
+	} {
+		c := NewConfig()
+		c.Server.JwtSecret = "a-perfectly-fine-random-secret-over-32-chars"
+		c.Storage.MissingGracePeriod = in
+		if assert.NoError(t, c.Finalize(), in) {
+			assert.Equal(t, want, c.Storage.MissingGracePeriodDuration, in)
+		}
+	}
+	for _, bad := range []string{"7days", "1.5d", "-1d", "-1h", "abc"} {
+		c := NewConfig()
+		c.Server.JwtSecret = "a-perfectly-fine-random-secret-over-32-chars"
+		c.Storage.MissingGracePeriod = bad
+		assert.Error(t, c.Finalize(), bad)
+	}
 }

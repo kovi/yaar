@@ -16,4 +16,4 @@ storage:
   # How long the record of a file that vanished from disk (tags, expiry,
   # stream/group) is kept before it is deleted. Protects metadata from a
   # forgotten mount; "0" deletes on the first miss.
-  # missing_grace_period: 168h
+  # missing_grace_period: 7d   # days ("7d") or a Go duration ("168h")

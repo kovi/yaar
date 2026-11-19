@@ -33,7 +33,8 @@ type Config struct {
 		ProtectedPaths     []string `yaml:"protected_paths" json:"protected_paths" env:"AF_PROTECTED_PATHS"`
 		// MissingGracePeriod is how long the sync worker keeps the metadata of a
 		// file it can no longer find on disk (tags, expiry, stream/group) before
-		// deleting it, as a Go duration ("168h"). A forgotten mount or a data
+		// deleting it: a whole number of days ("7d") or a Go duration ("168h",
+		// "36h"), like the retention durations. A forgotten mount or a data
 		// dir that is briefly unavailable then only marks records missing; they
 		// recover when the files reappear. "0" deletes on the first miss.
 		MissingGracePeriod         string        `yaml:"missing_grace_period" json:"missing_grace_period" env:"AF_MISSING_GRACE_PERIOD"`
@@ -163,7 +164,7 @@ func (c *Config) Finalize() error {
 	if c.Storage.MissingGracePeriod == "" {
 		c.Storage.MissingGracePeriod = "168h"
 	}
-	grace, err := time.ParseDuration(c.Storage.MissingGracePeriod)
+	grace, err := parseDaysOrDuration(c.Storage.MissingGracePeriod)
 	if err != nil {
 		return fmt.Errorf("storage.missing_grace_period %q: %w", c.Storage.MissingGracePeriod, err)
 	}
@@ -314,4 +315,18 @@ func setField(field reflect.Value, tagName, val string) error {
 	}
 
 	return nil
+}
+
+// parseDaysOrDuration accepts a whole number of days ("7d"), as the retention
+// settings do, or anything time.ParseDuration accepts ("168h", "90m", "0").
+func parseDaysOrDuration(s string) (time.Duration, error) {
+	s = strings.TrimSpace(s)
+	if n, ok := strings.CutSuffix(s, "d"); ok {
+		days, err := strconv.Atoi(n)
+		if err != nil {
+			return 0, fmt.Errorf("invalid day count %q: use e.g. \"7d\" or a Go duration like \"168h\"", s)
+		}
+		return time.Duration(days) * 24 * time.Hour, nil
+	}
+	return time.ParseDuration(s)
 }

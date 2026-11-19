@@ -256,6 +256,19 @@ func TestReadPage_AnyOf(t *testing.T) {
 		assert.Contains(t, []string{"SYSTEM_CLEANUP", "SYSTEM_MAINTENANCE"}, e["action"])
 	}
 
+	// Prefixes of the operation field match too.
+	op := makeEntry(4, "SYSTEM_MAINTENANCE")
+	op["operation"] = "janitor_resume"
+	// Matches by text only (in the path), not by action or operation.
+	decoy := makeEntry(5, "FILE_UPLOAD")
+	decoy["resource"] = "/tools/janitor_tool.zip"
+	decoy["path"] = "/tools/SYSTEM_CLEANUP.txt"
+	b := writeEntries(t, []map[string]any{op, decoy})
+	page, err = b.ReadPage(ReadOptions{BeforeOffset: -1, Limit: 10, AnyOf: []string{"SYSTEM_CLEANUP", "janitor_"}})
+	require.NoError(t, err)
+	require.Len(t, page.Entries, 1, "a path containing the text must not match")
+	assert.Equal(t, "janitor_resume", page.Entries[0]["operation"])
+
 	// Combined with Filter: both must match.
 	page, err = a.ReadPage(ReadOptions{BeforeOffset: -1, Limit: 10, Filter: "MAINTENANCE", AnyOf: []string{"SYSTEM_CLEANUP", "SYSTEM_MAINTENANCE"}})
 	require.NoError(t, err)
