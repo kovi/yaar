@@ -35,6 +35,7 @@ var errorDefs = map[ErrorCode]errorDef{
 	ErrResourceAlreadyInGroup:  {http.StatusConflict, "Resource already belongs to a group and cannot be moved."},
 	ErrStreamGroupBothRequired: {http.StatusBadRequest, "Stream and group must be provided together."},
 	ErrResourceLocked:          {http.StatusForbidden, "This resource is locked and cannot be modified."},
+	ErrLegacyHeader:            {http.StatusBadRequest, "A header from the previous API version is no longer supported."},
 }
 
 func (e *AppError) Respond(c *gin.Context) {

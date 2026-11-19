@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/go-gormigrate/gormigrate/v2"
+	"github.com/kovi/yaar/internal/audit"
 	"github.com/kovi/yaar/internal/models"
 	"github.com/kovi/yaar/internal/ptr"
 	"github.com/sirupsen/logrus"
@@ -33,7 +34,9 @@ func wholeDaysFromUpload(createdAt, expiresAt time.Time) (int, bool) {
 	return int(days), true
 }
 
-func AutoMigrate(db *gorm.DB) error {
+// AutoMigrate brings the schema and data up to date. auditor, when non-nil,
+// records data changes a migration made that an admin should know about.
+func AutoMigrate(db *gorm.DB, auditor *audit.Auditor) error {
 	// SQLite implements DropColumn by rebuilding the whole table (create new,
 	// copy rows, drop old). If foreign_keys are ON, dropping the old
 	// meta_resources table fires the ON DELETE CASCADE on meta_tags and wipes
@@ -51,6 +54,10 @@ func AutoMigrate(db *gorm.DB) error {
 	// janitor is then suspended until an admin has reviewed the pending
 	// deletions and resumed it; see janitor_review.go.
 	var suspendReasons []string
+
+	// Directories whose per-directory batch download mode was "merge"; recorded
+	// in the audit log once the migrations have committed.
+	var mergeDirs []string
 
 	m := gormigrate.New(db, gormigrate.DefaultOptions, []*gormigrate.Migration{
 		{
@@ -339,10 +346,30 @@ func AutoMigrate(db *gorm.DB) error {
 				return nil
 			},
 		},
+		{
+			ID: "202611161200_drop_download_mode",
+			Migrate: func(tx *gorm.DB) error {
+				var err error
+				mergeDirs, err = dropDownloadMode(tx)
+				return err
+			},
+			Rollback: func(tx *gorm.DB) error {
+				return nil
+			},
+		},
 	})
 
 	if err := m.Migrate(); err != nil {
 		return err
+	}
+
+	if auditor != nil {
+		for _, p := range mergeDirs {
+			auditor.Success("SYSTEM_MAINTENANCE", p,
+				"operation", "migration_download_mode_dropped",
+				"download_mode", "merge",
+				"replacement", "batch download with ?mode=merge (\"Download merged\" in the UI)")
+		}
 	}
 
 	if err := db.AutoMigrate(
@@ -446,4 +473,43 @@ func backfillGroupDeadlines(tx *gorm.DB) (int, error) {
 	}).Info("migration 202611111200_backfill_group_deadlines: backfilled group deadlines")
 
 	return set, nil
+}
+
+// dropDownloadMode removes the legacy per-directory batch download mode.
+//
+// The old version stored download_mode on each resource and used the common
+// parent's value when a batch download did not say which mode it wanted. The
+// current version has no per-directory setting: the caller chooses with
+// ?mode=merge (the UI's "Download merged"), and the default is literal. Only
+// "merge" ever changed behaviour, so those directories are returned (and
+// logged) for the audit trail before the column is dropped.
+func dropDownloadMode(tx *gorm.DB) ([]string, error) {
+	const id = "migration 202611161200_drop_download_mode"
+	if !tx.Migrator().HasColumn(&MetaResource{}, "download_mode") {
+		logrus.Info(id + ": no legacy download_mode column, nothing to do")
+		return nil, nil
+	}
+
+	var paths []string
+	if err := tx.Table("meta_resources").
+		Where("LOWER(TRIM(download_mode)) = ?", "merge").
+		Order("path").
+		Pluck("path", &paths).Error; err != nil {
+		return nil, fmt.Errorf("load merge directories: %w", err)
+	}
+	for _, p := range paths {
+		logrus.WithField("path", p).Warn(id + ": per-directory download mode \"merge\" dropped; batch downloads now default to literal, use ?mode=merge")
+	}
+
+	type OldDownloadMode struct {
+		DownloadMode string `gorm:"column:download_mode"`
+	}
+	// Best effort, like the other legacy column drops: a column left behind is
+	// unused and harmless.
+	if err := tx.Table("meta_resources").Migrator().DropColumn(&OldDownloadMode{}, "download_mode"); err != nil {
+		logrus.WithError(err).Warn(id + ": could not drop download_mode column")
+	}
+
+	logrus.WithField("merge_directories", len(paths)).Info(id + ": dropped per-directory download mode")
+	return paths, nil
 }

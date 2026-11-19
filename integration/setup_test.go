@@ -104,7 +104,7 @@ func setupServer(db *gorm.DB, rootDir, baseDir string) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 
 	// setup db
-	if err := api.AutoMigrate(db); err != nil {
+	if err := api.AutoMigrate(db, nil); err != nil {
 		panic(err)
 	}
 

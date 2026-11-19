@@ -1,19 +1,31 @@
+# Example deployment. Before the first start:
+#
+#   mkdir -p config data
+#   cp config.example.yml config/config.yml   # protected paths, upload size, ...
+#   echo "JWT_SECRET=$(openssl rand -base64 48)" > .env
+#   docker compose up -d --build
+#
+# The config file is passed explicitly, so a missing one stops the server at
+# startup instead of silently running with defaults (no protected paths).
+# JWT_SECRET overrides any jwt_secret in the config file; the server refuses to
+# start without one.
 services:
   artifactory:
-    restart: always
-    image: yaar:experimental
+    build: .
+    image: yaar:latest
+    restart: unless-stopped
     ports:
       - 8889:8080
-    # The JWT secret signs every session token. Set it here (or in a .env file
-    # next to this compose file) to a long random value — e.g.
-    #   echo "JWT_SECRET=$(openssl rand -base64 48)" > .env
-    # The server refuses to start without one.
     environment:
       - JWT_SECRET=${JWT_SECRET:?set JWT_SECRET (e.g. `openssl rand -base64 48`) before starting}
     command:
+      - -config=/config/config.yml
       - -data-dir=/data
       - -db=/config/artifactory.db
       - -audit-log=/config/audit.log
+    # Yaar drains in-flight uploads for up to 30s on SIGTERM; Docker's default
+    # 10s would kill it mid-upload.
+    stop_grace_period: 35s
     volumes:
       - ./data:/data
       - ./config:/config

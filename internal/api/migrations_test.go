@@ -2,11 +2,15 @@ package api_test
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/glebarez/sqlite"
 	"github.com/kovi/yaar/internal/api"
+	"github.com/kovi/yaar/internal/audit"
 	"github.com/kovi/yaar/internal/models"
 	"github.com/kovi/yaar/internal/ptr"
 	"github.com/stretchr/testify/assert"
@@ -76,7 +80,7 @@ func TestMigrateTagsSurviveWithForeignKeysOn(t *testing.T) {
 	require.NoError(t, db.Exec(
 		"INSERT INTO meta_tags (resource_id, key, value) VALUES (1,'uploader','mark.pal'),(1,'branch','master'),(2,'uploader','helly.r')").Error)
 
-	require.NoError(t, api.AutoMigrate(db))
+	require.NoError(t, api.AutoMigrate(db, nil))
 
 	var tagCount int64
 	require.NoError(t, db.Table("meta_tags").Count(&tagCount).Error)
@@ -122,7 +126,7 @@ func TestMigrateExpiry(t *testing.T) {
 	}
 	require.NoError(t, db.Table("meta_resources").Create(&rows).Error)
 
-	require.NoError(t, api.AutoMigrate(db), "migration should run without errors")
+	require.NoError(t, api.AutoMigrate(db, nil), "migration should run without errors")
 
 	// The legacy column must be gone.
 	assert.False(t, db.Migrator().HasColumn("meta_resources", "expires_at"),
@@ -175,14 +179,14 @@ func TestMigrateExpiryFreshInstall(t *testing.T) {
 	db := freshDB(t)
 
 	// Run migrations on an empty DB (no pre-existing tables/columns).
-	require.NoError(t, api.AutoMigrate(db))
+	require.NoError(t, api.AutoMigrate(db, nil))
 
 	// The new schema should exist with expiry_at, and no legacy column.
 	assert.True(t, db.Migrator().HasColumn(&api.MetaResource{}, "expiry_at"))
 	assert.False(t, db.Migrator().HasColumn("meta_resources", "expires_at"))
 
 	// And it should be idempotent: running again changes nothing.
-	require.NoError(t, api.AutoMigrate(db))
+	require.NoError(t, api.AutoMigrate(db, nil))
 }
 
 // TestMigrateExpiryWithStreamAndGroup verifies the expiry migration composes
@@ -208,7 +212,7 @@ func TestMigrateExpiryWithStreamAndGroup(t *testing.T) {
 	}
 	require.NoError(t, db.Table("meta_resources").Create(&rows).Error)
 
-	require.NoError(t, api.AutoMigrate(db))
+	require.NoError(t, api.AutoMigrate(db, nil))
 
 	r := resourceByPath(t, db, "/lumon/artifact.tar.gz")
 
@@ -270,7 +274,7 @@ func TestExtractStreamAndGroupMigration(t *testing.T) {
 
 	// --- RUN MIGRATION ---
 
-	err = api.AutoMigrate(db)
+	err = api.AutoMigrate(db, nil)
 	require.NoError(t, err, "Migration should run without errors")
 
 	// --- ASSERT "AFTER" STATE ---
@@ -375,7 +379,7 @@ func TestMigrateBackfillsGroupDeadlines(t *testing.T) {
 	}
 	require.NoError(t, db.Table("meta_resources").Create(&rows).Error)
 
-	require.NoError(t, api.AutoMigrate(db))
+	require.NoError(t, api.AutoMigrate(db, nil))
 
 	group := func(path string) api.Group {
 		t.Helper()
@@ -414,7 +418,7 @@ func TestMigrateBackfillsGroupDeadlines(t *testing.T) {
 // deadline from member expiry, while older groups are.
 func TestBackfillLeavesRetainLatestHead(t *testing.T) {
 	db := freshDB(t)
-	require.NoError(t, api.AutoMigrate(db))
+	require.NoError(t, api.AutoMigrate(db, nil))
 
 	trueVal := true
 	s := api.Stream{Name: "rl", RetainLatest: &trueVal}
@@ -430,7 +434,7 @@ func TestBackfillLeavesRetainLatestHead(t *testing.T) {
 
 	// Re-run just the backfill migration.
 	require.NoError(t, db.Exec("DELETE FROM migrations WHERE id = ?", "202611111200_backfill_group_deadlines").Error)
-	require.NoError(t, api.AutoMigrate(db))
+	require.NoError(t, api.AutoMigrate(db, nil))
 
 	require.NoError(t, db.First(&g1, g1.ID).Error)
 	require.NoError(t, db.First(&g2, g2.ID).Error)
@@ -459,20 +463,20 @@ func TestMigrateSuspendsJanitorOnLegacyData(t *testing.T) {
 		ID: 1, Path: "/a", Stream: "s", Group: "1", CreatedAt: now.Add(-48 * time.Hour), ExpiresAt: &exp,
 	}).Error)
 
-	require.NoError(t, api.AutoMigrate(db))
+	require.NoError(t, api.AutoMigrate(db, nil))
 	st := janitorSuspendedState(t, db)
 	require.NotNil(t, st, "janitor must be suspended after migrating legacy data")
 	assert.Contains(t, st.Value, "migration")
 
 	// Re-running AutoMigrate (next start) must not re-suspend after a resume.
 	require.NoError(t, api.ResumeJanitor(db))
-	require.NoError(t, api.AutoMigrate(db))
+	require.NoError(t, api.AutoMigrate(db, nil))
 	assert.Nil(t, janitorSuspendedState(t, db), "no migration ran, janitor stays resumed")
 }
 
 func TestMigrateFreshInstallDoesNotSuspendJanitor(t *testing.T) {
 	db := freshDB(t)
-	require.NoError(t, api.AutoMigrate(db))
+	require.NoError(t, api.AutoMigrate(db, nil))
 	assert.Nil(t, janitorSuspendedState(t, db))
 }
 
@@ -487,7 +491,7 @@ func TestMigrateMixedKeepLatestStream(t *testing.T) {
 		{ID: 2, Path: "/nav/abc.zip", Stream: "nav", Group: "abc", PolicyKeepLatest: &trueVal, CreatedAt: now},
 		{ID: 3, Path: "/ci/x.zip", Stream: "ci", Group: "1", PolicyKeepLatest: &trueVal, CreatedAt: now},
 	}).Error)
-	require.NoError(t, api.AutoMigrate(db))
+	require.NoError(t, api.AutoMigrate(db, nil))
 
 	var nav, ci api.Stream
 	require.NoError(t, db.Where("name = ?", "nav").First(&nav).Error)
@@ -495,4 +499,60 @@ func TestMigrateMixedKeepLatestStream(t *testing.T) {
 	assert.False(t, ptr.Val(nav.AutoExpirePrevious), "mixed stream must not expire its unflagged groups")
 	assert.True(t, ptr.Val(ci.AutoExpirePrevious))
 	assert.Nil(t, nav.RetainLatest)
+}
+
+// legacyDownloadModeSchema is the pre-streams meta_resources with its
+// per-directory batch download mode.
+type legacyDownloadModeSchema struct {
+	ID           uint   `gorm:"primaryKey"`
+	Path         string `gorm:"type:text;not null;uniqueIndex"`
+	Type         string `gorm:"type:text;not null;default:'file'"`
+	DownloadMode string `gorm:"column:download_mode;type:text;default:'literal'"`
+	CreatedAt    time.Time
+}
+
+func (legacyDownloadModeSchema) TableName() string { return "meta_resources" }
+
+// The per-directory download mode has no equivalent any more. The migration
+// must drop it visibly: every directory that was "merge" (the only value that
+// changed behaviour) is recorded in the audit log.
+func TestMigrateDropsDownloadModeAndAuditsMergeDirs(t *testing.T) {
+	db := freshDB(t)
+	require.NoError(t, db.AutoMigrate(&legacyDownloadModeSchema{}))
+	require.NoError(t, db.Create(&[]legacyDownloadModeSchema{
+		{Path: "/releases", Type: "dir", DownloadMode: "merge"},
+		{Path: "/nightly", Type: "dir", DownloadMode: "literal"},
+		{Path: "/tools", Type: "dir", DownloadMode: " MERGE "},
+		{Path: "/releases/a.bin", Type: "file", DownloadMode: "literal"},
+	}).Error)
+
+	logPath := filepath.Join(t.TempDir(), "audit.log")
+	aud, err := audit.NewAuditor(logPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { aud.Close() })
+
+	require.NoError(t, api.AutoMigrate(db, aud))
+
+	assert.False(t, db.Migrator().HasColumn(&api.MetaResource{}, "download_mode"), "column should be dropped")
+	var count int64
+	db.Model(&api.MetaResource{}).Count(&count)
+	assert.EqualValues(t, 4, count, "dropping the column must keep every row")
+
+	logData, err := os.ReadFile(logPath)
+	require.NoError(t, err)
+	log := string(logData)
+	assert.Contains(t, log, `"resource":"/releases"`)
+	assert.Contains(t, log, `"resource":"/tools"`)
+	assert.NotContains(t, log, `"resource":"/nightly"`)
+	assert.Equal(t, 2, strings.Count(log, "migration_download_mode_dropped"))
+
+	// Not a retention change: the janitor keeps running.
+	var states []models.SystemState
+	db.Where("key = ?", "janitor_suspended").Find(&states)
+	assert.Empty(t, states)
+
+	// Idempotent: a second start does nothing.
+	require.NoError(t, api.AutoMigrate(db, aud))
+	logData, _ = os.ReadFile(logPath)
+	assert.Equal(t, 2, strings.Count(string(logData), "migration_download_mode_dropped"))
 }

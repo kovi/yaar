@@ -2,3 +2,7 @@ storage
 *.log
 *.db
 yaar
+# docker-compose.yml example layout: artifacts, config/DB and the JWT secret
+data
+config
+.env

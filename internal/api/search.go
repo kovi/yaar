@@ -34,6 +34,8 @@ func (h *Handler) Search(c *gin.Context) {
 		Joins("Group.Stream").
 		Where("meta_resources.path LIKE ? OR `Group__Stream`.name LIKE ? OR `Group`.name LIKE ?",
 			searchPattern, searchPattern, searchPattern).
+		// Files the sync worker can no longer find would only lead to a 404.
+		Where("meta_resources.missing_since IS NULL").
 		Limit(10).Find(&resources)
 
 	// 2. Query Tags directly to find files matching by tag but not by name
@@ -43,6 +45,7 @@ func (h *Handler) Search(c *gin.Context) {
 		Preload("Resource.Tags").
 		Preload("Resource.Group.Stream").
 		Where("key LIKE ? OR value LIKE ?", searchPattern, searchPattern).
+		Where("`Resource`.missing_since IS NULL").
 		Limit(10).Find(&matchedTags)
 
 	if rtags.Error != nil {

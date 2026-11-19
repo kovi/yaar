@@ -100,6 +100,12 @@ template.innerHTML = `
                     <button class="btn btn-ghost btn-sm" id="btn-open-janitor">Details →</button>
                 </div>
             </div>
+            <div class="af-operation-item af-op-missing" id="op-missing" hidden>
+                <div class="af-operation-info">
+                    <h4>⚠ Files missing on disk</h4>
+                    <p id="op-missing-status"></p>
+                </div>
+            </div>
         </div>
 
         <!-- 5. CONFIG -->
@@ -181,6 +187,21 @@ export async function SystemInfo() {
 	container.getElementById("config-json").textContent = data.config
 		? JSON.stringify(data.config, null, 2)
 		: "Administrator access required.";
+
+	// Missing-on-disk row — admin only. The sync worker keeps the records of
+	// vanished files for a grace period; a large count usually means an
+	// unmounted volume, which must be fixed before the records are dropped.
+	const missing = data.missing_on_disk;
+	if (missing && missing.count > 0) {
+		container.getElementById("op-missing").hidden = false;
+		container.getElementById("op-missing-status").textContent =
+			`${missing.count} record(s) point to files the sync worker cannot find. ` +
+			`They are kept for ${missing.grace_period} in case the files come back` +
+			(missing.delete_after
+				? `; the oldest is removed after ${Format.dateTime(missing.delete_after)}.`
+				: ".") +
+			" Check that every storage mount is present.";
+	}
 
 	// Janitor row in Operations — admin only (system_states is only sent to admins).
 	if (data.system_states) {

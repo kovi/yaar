@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -84,6 +85,12 @@ func (sc *SyncController) runRecursiveSync(ctx context.Context) {
 
 // SyncFilesystem reconciles the database against what is on disk.
 //
+// Records whose file has disappeared are not deleted straight away: they are
+// marked missing and removed only after storage.missing_grace_period, so an
+// unmounted volume or a data dir that is briefly unavailable does not wipe
+// tags, expiry and stream/group membership. A walk that fails, or a subtree
+// that cannot be read, never counts as "missing".
+//
 // Like RunCleanup, one pass tags all of its lines with a run_id so a
 // reconciliation that touches many paths reads as a single unit.
 func (h *Handler) SyncFilesystem(ctx context.Context) {
@@ -93,20 +100,33 @@ func (h *Handler) SyncFilesystem(ctx context.Context) {
 	})
 	log.Info("Sync: Starting reconciliation...")
 
+	// A missing or non-directory data dir would make every record look
+	// missing. That is a configuration problem, not a deletion.
+	if fi, err := os.Stat(h.BaseDir); err != nil || !fi.IsDir() {
+		log.WithError(err).Errorf("Sync: data dir %q is not available, skipping reconciliation", h.BaseDir)
+		return
+	}
+
 	// 1. Pre-load all DB records into memory for fast lookup
 	dbFiles := make(map[string]MetaResource)
 	var allMeta []MetaResource
-	h.DB.Find(&allMeta)
+	if err := h.DB.Find(&allMeta).Error; err != nil {
+		log.WithError(err).Error("Sync: failed to load records, skipping reconciliation")
+		return
+	}
 	for _, m := range allMeta {
 		dbFiles[m.Path] = m
 	}
 
 	foundOnDisk := make(map[string]bool)
+	// Subtrees that could not be read. Their records are left untouched: not
+	// being able to list a directory says nothing about whether its files exist.
+	var unreadable []string
 
 	// 2. Walk the filesystem
 	err := filepath.WalkDir(h.BaseDir, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return err
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
 		}
 
 		// Calculate virtual URL path
@@ -116,13 +136,37 @@ func (h *Handler) SyncFilesystem(ctx context.Context) {
 			urlPath = "/"
 		}
 
+		if err != nil {
+			if path == h.BaseDir {
+				return err
+			}
+			// Returning the error would abort the whole walk and leave every
+			// record not yet visited looking missing. Skip just this subtree.
+			log.WithError(err).Warnf("Sync: cannot read %s, leaving its records unchanged", urlPath)
+			unreadable = append(unreadable, urlPath)
+			if d != nil && d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		if !d.IsDir() && isTransientFile(d.Name()) {
+			return nil
+		}
+
 		foundOnDisk[urlPath] = true
 
 		meta, exists := dbFiles[urlPath]
 
+		info, err := d.Info()
+		if err != nil {
+			// Gone between listing and stat (e.g. an upload's temp file being
+			// renamed into place). The next pass sees the outcome.
+			return nil
+		}
+
 		if d.IsDir() {
 			if exists {
-				info, _ := d.Info()
 				if meta.Size != info.Size() || meta.ModTime.Unix() != info.ModTime().Unix() {
 					meta.Size = info.Size()
 					meta.ModTime = info.ModTime()
@@ -133,8 +177,6 @@ func (h *Handler) SyncFilesystem(ctx context.Context) {
 			}
 			return nil
 		}
-
-		info, _ := d.Info()
 
 		// CHANGE DETECTION LOGIC:
 		// We re-hash only if:
@@ -150,19 +192,103 @@ func (h *Handler) SyncFilesystem(ctx context.Context) {
 	})
 
 	if err != nil {
-		log.WithError(err).Error("Sync: Walk failed")
+		// An incomplete walk cannot tell missing files from unvisited ones.
+		log.WithError(err).Error("Sync: Walk failed, skipping missing-file cleanup")
+		return
 	}
 
-	// 3. CLEANUP: If a record exists in DB but is not on disk, remove it.
-	// This works for both Files and Directories (if the Dir was in the DB).
+	// 3. CLEANUP: records whose file is gone.
+	h.reconcileMissing(log, dbFiles, foundOnDisk, unreadable)
+}
+
+// reconcileMissing applies the missing-file grace period to every record the
+// walk did not find: mark it, delete it once the grace period has passed, or
+// clear the mark if the file is back.
+func (h *Handler) reconcileMissing(log *logrus.Entry, dbFiles map[string]MetaResource, foundOnDisk map[string]bool, unreadable []string) {
+	ts := now()
+	grace := h.Config.Storage.MissingGracePeriodDuration
+	var marked, recovered, removed int
+
 	for path, meta := range dbFiles {
-		if !foundOnDisk[path] {
-			log.Infof("Sync: Removing ghost record from DB: %s", path)
-			h.DB.Delete(&meta)
-			// Pass "nil" for context as per our new Auditor interface
-			h.Audit.Success("SYSTEM_SYNC_CLEANUP", path, "reason", "missing_on_disk")
+		if foundOnDisk[path] || underAnyPath(path, unreadable) {
+			if meta.MissingSince != nil {
+				if err := h.DB.Model(&MetaResource{}).Where("id = ?", meta.ID).UpdateColumn("missing_since", nil).Error; err != nil {
+					log.WithError(err).Errorf("Sync: failed to clear missing mark on %s", path)
+					continue
+				}
+				log.Infof("Sync: %s is back on disk", path)
+				h.Audit.Success("SYSTEM_SYNC_CLEANUP", path, "reason", "reappeared_on_disk", "missing_since", meta.MissingSince)
+				recovered++
+			}
+			continue
+		}
+
+		// Our own temp files are never artifacts, so there is nothing to keep.
+		expired := grace == 0 || isTransientFile(filepath.Base(path)) ||
+			(meta.MissingSince != nil && ts.Sub(*meta.MissingSince) >= grace)
+
+		if !expired {
+			if meta.MissingSince == nil {
+				if err := h.DB.Model(&MetaResource{}).Where("id = ?", meta.ID).UpdateColumn("missing_since", ts).Error; err != nil {
+					log.WithError(err).Errorf("Sync: failed to mark %s missing", path)
+					continue
+				}
+				log.Warnf("Sync: %s is missing on disk; its record is kept until %s", path, ts.Add(grace).Format(time.RFC3339))
+				h.Audit.Success("SYSTEM_SYNC_CLEANUP", path, "reason", "marked_missing_on_disk", "delete_record_after", ts.Add(grace))
+				marked++
+			}
+			continue
+		}
+
+		log.Infof("Sync: Removing ghost record from DB: %s", path)
+		if err := h.DB.Delete(&meta).Error; err != nil {
+			log.WithError(err).Errorf("Sync: failed to remove record %s", path)
+			continue
+		}
+		h.Audit.Success("SYSTEM_SYNC_CLEANUP", path, "reason", "missing_on_disk", "missing_since", meta.MissingSince)
+		removed++
+
+		if meta.GroupID != nil {
+			meta.DeleteAfter = nil // gone; don't let its old deadline extend the group's
+			if err := meta.syncGroupDeadline(h.DB); err != nil {
+				log.WithError(err).WithField("group_id", *meta.GroupID).Warn("Sync: sync group deadline failed")
+			}
+			if err := h.cleanupGroupIfEmpty(meta.GroupID); err != nil {
+				log.WithError(err).WithField("group_id", *meta.GroupID).Warn("Sync: group cleanup failed")
+			}
 		}
 	}
+
+	if marked+recovered+removed > 0 {
+		log.WithFields(logrus.Fields{
+			"marked_missing": marked,
+			"reappeared":     recovered,
+			"removed":        removed,
+			"grace_period":   grace.String(),
+		}).Info("Sync: reconciled missing files")
+	}
+}
+
+// underAnyPath reports whether urlPath is one of roots or lies beneath one.
+func underAnyPath(urlPath string, roots []string) bool {
+	for _, r := range roots {
+		if urlPath == r || strings.HasPrefix(urlPath, r+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+// isTransientFile reports whether name is a short-lived file yaar itself
+// creates in the data dir: an upload still being written
+// (".<name>.upload-*", see HandleUpload) or the health probe (".health-*").
+// They are renamed or removed within the request, so tracking them only
+// produces records that go missing moments later.
+func isTransientFile(name string) bool {
+	if !strings.HasPrefix(name, ".") {
+		return false
+	}
+	return strings.HasPrefix(name, ".health-") || strings.Contains(name, ".upload-")
 }
 
 func (h *Handler) processIncomingFile(ctx context.Context, fullDiskPath, urlPath string, info os.FileInfo) {

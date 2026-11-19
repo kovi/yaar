@@ -10,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/kovi/yaar/internal/models"
+	"github.com/kovi/yaar/internal/ptr"
 	"github.com/sirupsen/logrus"
 )
 
@@ -72,6 +73,30 @@ func InitializeVersionInfo(log *logrus.Entry) error {
 	}).Info("started")
 
 	return nil
+}
+
+// MissingOnDisk summarises records the sync worker has marked missing, so an
+// admin notices a forgotten mount before the grace period removes them.
+type MissingOnDisk struct {
+	Count       int64      `json:"count"`
+	OldestSince *time.Time `json:"oldest_since,omitempty"`
+	// When the oldest record will be deleted, if its file does not reappear.
+	DeleteAfter *time.Time `json:"delete_after,omitempty"`
+	GracePeriod string     `json:"grace_period"`
+}
+
+func (h *Handler) missingOnDiskSummary() MissingOnDisk {
+	out := MissingOnDisk{GracePeriod: h.Config.Storage.MissingGracePeriodDuration.String()}
+	q := h.DB.Model(&MetaResource{}).Where("missing_since IS NOT NULL")
+	if err := q.Count(&out.Count).Error; err != nil || out.Count == 0 {
+		return out
+	}
+	var oldest MetaResource
+	if err := h.DB.Where("missing_since IS NOT NULL").Order("missing_since ASC").Limit(1).Find(&oldest).Error; err == nil && oldest.MissingSince != nil {
+		out.OldestSince = oldest.MissingSince
+		out.DeleteAfter = ptr.Of(oldest.MissingSince.Add(h.Config.Storage.MissingGracePeriodDuration))
+	}
+	return out
 }
 
 // GetSettings serves the system/diagnostics payload.
@@ -149,6 +174,7 @@ func (h *Handler) GetSettings(c *gin.Context) {
 		resp["dependencies"] = dependencies
 		resp["config"] = h.Config
 		resp["system_states"] = states
+		resp["missing_on_disk"] = h.missingOnDiskSummary()
 	}
 
 	c.JSON(200, resp)

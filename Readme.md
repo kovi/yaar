@@ -217,10 +217,19 @@ so an unconfigured instance fails fast rather than booting with a public key.
 | Vacuum Interval | `AF_VACUUM_INTERVAL` | — | `168h` |
 | Log Level | `AF_LOG_LEVEL` | `--log-level` | `info` |
 | Protected Paths | `AF_PROTECTED_PATHS` | — | (None) |
+| Missing-File Grace Period | `AF_MISSING_GRACE_PERIOD` | — | `168h` |
 
 *The scheduled VACUUM holds the single SQLite connection while it runs, so requests block for its
 duration — hence the weekly default. Set `AF_VACUUM_INTERVAL=0` to disable it and rely on the admin
 endpoint alone.*
+
+*The sync worker reconciles the database with the data directory every hour. A file that has
+disappeared from disk is first only marked missing; its record — tags, expiry, stream/group — is
+deleted once it has been missing for `missing_grace_period` (`storage.missing_grace_period` in
+`config.yml`, a Go duration). If the file comes back, for example after a forgotten mount is
+restored, the mark is cleared and nothing is lost. Admins see a warning in the System tab while any
+records are marked missing. A data directory that does not exist, or a subdirectory that cannot be
+read, is never treated as "missing". Set `0` to delete records on the first miss.*
 
 *Log level accepts any logrus level: `panic`, `fatal`, `error`, `warn`, `info`, `debug`, `trace`.
 An invalid value fails at startup rather than being silently ignored.*
@@ -275,6 +284,40 @@ The browser suite manages its own virtualenv; `e2e/bootstrap.sh` rebuilds it aut
 becomes unusable (a Python upgrade, or the directory being moved).
 
 ## Deployment
+
+### Docker
+
+`docker-compose.yml` is a working example: it builds the image and keeps the database, audit log
+and config under `./config` and artifacts under `./data`.
+
+```sh
+mkdir -p config data
+cp config.example.yml config/config.yml    # protected paths, upload size, ...
+echo "JWT_SECRET=$(openssl rand -base64 48)" > .env
+docker compose up -d --build
+```
+
+The config file is passed with `-config`, so a missing file stops the server instead of silently
+starting without protected paths.
+
+### Upgrading from the pre-streams version
+
+The database is migrated automatically on first start. Migrations that change what the janitor
+would delete suspend it; review the pending deletions under *Settings → Janitor* and resume it.
+
+Clients need updating — the old headers are rejected with `400 LEGACY_HEADER` (naming the
+replacement) rather than silently ignored:
+
+| Old | New |
+| --- | --- |
+| `X-API-Token: <token>` | `Authorization: Bearer <token>` |
+| `X-Stream: stream/group` | `Yaar-Stream: stream` and `Yaar-Group: group` |
+| `X-Expires: 7d` / `X-Expires: <date>` | `Yaar-Retention-Expire-After-Upload: 7d` / `Yaar-Retention-Expire-At: <date>` |
+| `X-KeepLatest: true` | set `auto_expire_previous` on the stream (`PATCH /_/api/v1/streams/<name>`) |
+
+The per-directory batch download mode no longer exists: batch downloads default to `literal`,
+and `?mode=merge` (or *Download merged* in the UI) selects merge. Directories that were set to
+`merge` are listed in the migration log and in the audit log (`migration_download_mode_dropped`).
 
 **Yaar serves plain HTTP and has no TLS support of its own.** Credentials — JWTs and API tokens —
 travel in the `Authorization` header in cleartext, so anything that can observe the network can

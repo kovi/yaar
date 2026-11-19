@@ -100,6 +100,14 @@ func (h *Handler) HandleUpload(c *gin.Context) {
 	allowed_paths := c.GetStringSlice("allowed_paths")
 	expectedSize := c.Request.ContentLength
 
+	// Checked before the body is read so an old client fails fast rather than
+	// after streaming a large artifact.
+	if appErr := rejectLegacyUploadHeaders(c.Request); appErr != nil {
+		h.Audit.WithContext(c).Failure(audit.ActionUpload, urlPath, appErr, "header", appErr.Details["header"])
+		respondErr(c, appErr)
+		return
+	}
+
 	var fileReader io.ReadCloser
 	var finalRelativePath string
 

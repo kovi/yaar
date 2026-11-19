@@ -74,6 +74,19 @@ func auditDenial(c *gin.Context, resource, reason string) {
 // It allows anonymous requests. It only fails if a token is present but invalid.
 func Identify(secret string, db *gorm.DB, cache *UserCache) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// The pre-1.0 API took tokens in X-API-Token. Ignoring it would turn an
+		// old client's authenticated request into an anonymous one and surface
+		// as a confusing 401/403, so name the replacement instead.
+		if _, ok := c.Request.Header[http.CanonicalHeaderKey(LegacyTokenHeader)]; ok {
+			auditDenial(c, c.Request.URL.Path, "legacy "+LegacyTokenHeader+" header")
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
+				"error":   "LEGACY_HEADER",
+				"message": "Header " + LegacyTokenHeader + " is no longer supported: send the token as Authorization: Bearer <token>.",
+				"header":  LegacyTokenHeader,
+			})
+			return
+		}
+
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
 			c.Next() // Anonymous user

@@ -19,6 +19,34 @@ const (
 	HeaderRetentionExpireAt            = "Yaar-Retention-Expire-At"
 )
 
+// ErrLegacyHeader rejects a request that uses a header from the pre-1.0 API.
+const ErrLegacyHeader ErrorCode = "LEGACY_HEADER"
+
+// legacyUploadHeaders are upload headers the pre-streams API accepted, each with
+// what replaces it. Unknown headers are otherwise ignored, so without this an
+// old CI script would upload successfully while its stream, expiry and
+// keep-latest settings were silently dropped — files that never expire.
+var legacyUploadHeaders = []struct{ name, replacement string }{
+	{"X-Stream", fmt.Sprintf("send %s and %s as separate headers instead of X-Stream: stream/group", HeaderStream, HeaderGroup)},
+	{"X-Expires", fmt.Sprintf("use %s for a relative expiry (e.g. 7d) or %s for an absolute date", HeaderRetentionExpireAfterUpload, HeaderRetentionExpireAt)},
+	{"X-KeepLatest", "set auto_expire_previous on the stream instead (PATCH /_/api/v1/streams/<name>)"},
+}
+
+// rejectLegacyUploadHeaders returns an error naming the first legacy header
+// present on r and its replacement, or nil.
+func rejectLegacyUploadHeaders(r *http.Request) *AppError {
+	for _, h := range legacyUploadHeaders {
+		if _, ok := r.Header[http.CanonicalHeaderKey(h.name)]; ok {
+			return &AppError{
+				Code:    ErrLegacyHeader,
+				Message: fmt.Sprintf("Header %s is no longer supported: %s.", h.name, h.replacement),
+				Details: map[string]any{"header": h.name},
+			}
+		}
+	}
+	return nil
+}
+
 func ExtractRetentionHeaders(r *http.Request) (*RetentionPolicyPatch, error) {
 	patch := &RetentionPolicyPatch{}
 	hasAnyHeader := false

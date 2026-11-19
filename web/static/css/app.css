@@ -1236,6 +1236,8 @@
 .af-janitor-tab [hidden],
 .af-jr-controls [hidden],
 .af-op-janitor[hidden] { display: none !important; }
+.af-op-missing[hidden] { display: none !important; }
+.af-op-missing h4 { color: var(--warning); }
 
 /* Suspend/resume controls (Janitor tab and System → Operations). */
 .af-jr-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: flex-end; }

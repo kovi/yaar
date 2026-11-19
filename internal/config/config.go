@@ -31,6 +31,13 @@ type Config struct {
 		MaxUploadSize      string   `yaml:"max_upload_size" json:"max_upload_size" env:"AF_MAX_SIZE"`
 		MaxUploadSizeBytes int64    `yaml:"-" json:"-"`
 		ProtectedPaths     []string `yaml:"protected_paths" json:"protected_paths" env:"AF_PROTECTED_PATHS"`
+		// MissingGracePeriod is how long the sync worker keeps the metadata of a
+		// file it can no longer find on disk (tags, expiry, stream/group) before
+		// deleting it, as a Go duration ("168h"). A forgotten mount or a data
+		// dir that is briefly unavailable then only marks records missing; they
+		// recover when the files reappear. "0" deletes on the first miss.
+		MissingGracePeriod         string        `yaml:"missing_grace_period" json:"missing_grace_period" env:"AF_MISSING_GRACE_PERIOD"`
+		MissingGracePeriodDuration time.Duration `yaml:"-" json:"-"`
 	} `yaml:"storage" json:"storage"`
 
 	Audit struct {
@@ -85,6 +92,7 @@ func NewConfig() *Config {
 	// enough that holding the single SQLite connection is not disruptive.
 	cfg.Maintenance.VacuumInterval = "168h"
 	cfg.Logging.Level = "info"
+	cfg.Storage.MissingGracePeriod = "168h"
 
 	return cfg
 }
@@ -151,6 +159,18 @@ func (c *Config) Finalize() error {
 		return fmt.Errorf("maintenance.vacuum_interval must not be negative, got %q", c.Maintenance.VacuumInterval)
 	}
 	c.Maintenance.VacuumIntervalDuration = vacuumEvery
+
+	if c.Storage.MissingGracePeriod == "" {
+		c.Storage.MissingGracePeriod = "168h"
+	}
+	grace, err := time.ParseDuration(c.Storage.MissingGracePeriod)
+	if err != nil {
+		return fmt.Errorf("storage.missing_grace_period %q: %w", c.Storage.MissingGracePeriod, err)
+	}
+	if grace < 0 {
+		return fmt.Errorf("storage.missing_grace_period must not be negative, got %q", c.Storage.MissingGracePeriod)
+	}
+	c.Storage.MissingGracePeriodDuration = grace
 
 	// Validated here so a typo fails at startup rather than silently leaving the
 	// level at whatever logrus defaults to.

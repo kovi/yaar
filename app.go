@@ -65,7 +65,7 @@ func BuildApp(cfg *config.Config, log *logrus.Entry) (*App, error) {
 	}
 
 	log.Info("Auto migrate")
-	if err := api.AutoMigrate(db); err != nil {
+	if err := api.AutoMigrate(db, auditor); err != nil {
 		return nil, fmt.Errorf("migrate database: %w", err)
 	}
 

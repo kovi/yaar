@@ -72,6 +72,13 @@ type MetaResource struct {
 	// Relations
 	Tags []MetaTag `gorm:"foreignKey:ResourceID;constraint:OnDelete:CASCADE"`
 
+	// MissingSince is set by the sync worker when the file is no longer on
+	// disk, and cleared if it reappears. NULL means present. The record (and
+	// its tags, expiry and group) is deleted only once it has been missing for
+	// storage.missing_grace_period, so a briefly unavailable mount does not
+	// wipe metadata.
+	MissingSince *time.Time `gorm:"index"`
+
 	// Audit
 	LastDownloadedAt *time.Time
 	CreatedAt        time.Time `gorm:"index"`
@@ -89,6 +96,8 @@ type ResourceResponse struct {
 	ModTime     time.Time    `json:"modTime"`
 	CreatedAt   time.Time    `json:"createdAt"`
 	UpdatedAt   time.Time    `json:"updatedAt"`
+	// Set while the sync worker cannot find the file on disk.
+	MissingSince *time.Time `json:"missing_since,omitempty"`
 
 	// Stream / group
 	Stream *string `json:"stream,omitempty"`

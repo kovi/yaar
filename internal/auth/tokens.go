@@ -12,6 +12,10 @@ import (
 // prefix to decide how to validate. Github-style prefix makes it easy to identify.
 const APITokenPrefix = "af_"
 
+// LegacyTokenHeader is the header the pre-1.0 API read API tokens from. It is
+// rejected with a 400 that points at Authorization: Bearer.
+const LegacyTokenHeader = "X-API-Token"
+
 // GenerateRandomToken returns a plain-text token with a prefix (e.g., af_...)
 func GenerateRandomToken() (string, error) {
 	b := make([]byte, 24) // 24 bytes of entropy

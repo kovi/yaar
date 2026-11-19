@@ -23,15 +23,16 @@ func (r *MetaResource) ToResourceResponse(allowedPaths []string, config *config.
 		// Previously never assigned, so every resource serialized "id": 0.
 		// Entries built by ToResponse for a file with no DB row legitimately
 		// carry 0, which now distinguishes "not tracked" from a real record.
-		ID:          r.ID,
-		Path:        r.Path,
-		Name:        filepath.Base(r.Path),
-		Type:        r.Type,
-		Size:        r.Size,
-		ModTime:     r.ModTime,
-		ContentType: r.ContentType,
-		CreatedAt:   r.CreatedAt,
-		UpdatedAt:   r.UpdatedAt,
+		ID:           r.ID,
+		Path:         r.Path,
+		Name:         filepath.Base(r.Path),
+		Type:         r.Type,
+		Size:         r.Size,
+		ModTime:      r.ModTime,
+		ContentType:  r.ContentType,
+		CreatedAt:    r.CreatedAt,
+		UpdatedAt:    r.UpdatedAt,
+		MissingSince: r.MissingSince,
 		Checksums: ChecksumResponse{
 			MD5:    r.MD5,
 			SHA1:   r.SHA1,
