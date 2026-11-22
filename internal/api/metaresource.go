@@ -4,11 +4,16 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/kovi/yaar/internal/config"
 	"github.com/kovi/yaar/internal/ptr"
+	"github.com/kovi/yaar/internal/utils"
 	"gorm.io/gorm"
 )
 
-func (r *MetaResource) Save(tx *gorm.DB) error {
+// Save persists the resource and recomputes its group's deadline and the
+// stream retention. cfg supplies the protected paths (nil: none), which, like
+// immutable files, the janitor never deletes.
+func (r *MetaResource) Save(tx *gorm.DB, cfg *config.Config) error {
 	r.Compute()
 
 	if err := tx.Save(r).Error; err != nil {
@@ -19,7 +24,7 @@ func (r *MetaResource) Save(tx *gorm.DB) error {
 		if err := r.syncGroupDeadline(tx); err != nil {
 			return err
 		}
-		if err := r.handleStreamRetention(tx); err != nil {
+		if err := r.handleStreamRetention(tx, cfg); err != nil {
 			return err
 		}
 	}
@@ -37,6 +42,11 @@ func parseNullableTime(s *string) *time.Time {
 	return nil
 }
 
+// computeGroupDeadline returns the deadline a group's members give it: none
+// if any member is immutable or has no deadline of its own, otherwise the
+// latest member deadline. currentResourceDeadline is the deadline of the
+// member being saved (nil means it is kept forever, so the group is too) or,
+// for a group with no member being saved, a lower bound such as "now".
 func computeGroupDeadline(tx *gorm.DB, groupID uint, currentResourceDeadline *time.Time) (*time.Time, error) {
 	var immutableCount int64
 	if err := tx.Model(&MetaResource{}).
@@ -83,7 +93,52 @@ func (r *MetaResource) syncGroupDeadline(tx *gorm.DB) error {
 		Update("effective_delete_after", maxTime).Error
 }
 
-func (r *MetaResource) handleStreamRetention(tx *gorm.DB) error {
+// latestGroupID returns the stream's latest group. id breaks created_at ties,
+// matching pendingDeletions and the group-deadline backfill, so the review
+// page predicts the same group.
+func latestGroupID(tx *gorm.DB, streamID uint) (uint, error) {
+	var latest Group
+	if err := tx.Where("stream_id = ?", streamID).
+		Order("created_at DESC, id DESC").
+		Limit(1).
+		Find(&latest).Error; err != nil {
+		return 0, fmt.Errorf("load latest group: %w", err)
+	}
+	return latest.ID, nil
+}
+
+// streamGroupDeadline applies the stream retention policy to group g:
+//   - the latest group of a RetainLatest stream has no deadline, or its
+//     RetainLatestMaxExpiry cap;
+//   - every older group of an AutoExpirePrevious stream expires now, unless
+//     the janitor could not delete any of its members anyway;
+//   - any other group gets its members' deadline (computeGroupDeadline, with
+//     memberDeadline as the deadline of the member being saved or a floor).
+func streamGroupDeadline(tx *gorm.DB, cfg *config.Config, g *Group, stream *Stream, latestID uint, memberDeadline *time.Time, now time.Time) (*time.Time, error) {
+	switch {
+	case g.ID == latestID && ptr.Val(stream.RetainLatest):
+		if stream.RetainLatestMaxExpiry != nil {
+			if d, err := utils.ParseDuration(*stream.RetainLatestMaxExpiry); err == nil {
+				return ptr.Of(g.CreatedAt.Add(d)), nil
+			}
+		}
+		return nil, nil
+	case g.ID != latestID && ptr.Val(stream.AutoExpirePrevious):
+		// A group whose members are all locked (e.g. kept in the janitor
+		// review) or protected has nothing to expire. Re-arming it on every
+		// save would only make the janitor skip it again and log a failure per
+		// file.
+		retained, err := allMembersRetained(tx, cfg, g.ID)
+		if err != nil || retained {
+			return nil, err
+		}
+		return &now, nil
+	default:
+		return computeGroupDeadline(tx, g.ID, memberDeadline)
+	}
+}
+
+func (r *MetaResource) handleStreamRetention(tx *gorm.DB, cfg *config.Config) error {
 	if r.Group == nil || r.Group.Stream.ID == 0 {
 		r.Group = &Group{}
 		if err := tx.Preload("Stream").First(r.Group, r.GroupID).Error; err != nil {
@@ -99,14 +154,9 @@ func (r *MetaResource) handleStreamRetention(tx *gorm.DB) error {
 
 	now := now()
 
-	var latestGroup Group
-	// id breaks created_at ties, matching pendingDeletions and the
-	// group-deadline backfill, so the review page predicts the same group.
-	if err := tx.Where("stream_id = ?", stream.ID).
-		Order("created_at DESC, id DESC").
-		Limit(1).
-		Find(&latestGroup).Error; err != nil {
-		return fmt.Errorf("load latest group: %w", err)
+	latestID, err := latestGroupID(tx, stream.ID)
+	if err != nil {
+		return err
 	}
 
 	var groups []Group
@@ -115,39 +165,13 @@ func (r *MetaResource) handleStreamRetention(tx *gorm.DB) error {
 	}
 
 	for _, g := range groups {
-		var effectiveDeadline *time.Time
-
-		if g.ID == latestGroup.ID && ptr.Val(stream.RetainLatest) {
-			effectiveDeadline = nil
-			if stream.RetainLatestMaxExpiry != nil {
-				if d, err := parseDuration(*stream.RetainLatestMaxExpiry); err == nil {
-					cap := g.CreatedAt.Add(d)
-					effectiveDeadline = &cap
-				}
-			}
-		} else if ptr.Val(stream.AutoExpirePrevious) && g.ID != latestGroup.ID {
-			// A group whose members are all locked (e.g. kept in the janitor
-			// review) has nothing to expire. Re-arming it on every save would
-			// only make the janitor skip it again and log a failure per file.
-			locked, err := allMembersLocked(tx, g.ID)
-			if err != nil {
-				return err
-			}
-			if !locked {
-				effectiveDeadline = &now
-			}
-		} else {
-			var currentResourceDeadline *time.Time
-			if g.ID == group.ID {
-				currentResourceDeadline = r.DeleteAfter
-			} else {
-				currentResourceDeadline = &now
-			}
-			dl, err := computeGroupDeadline(tx, g.ID, currentResourceDeadline)
-			if err != nil {
-				return err
-			}
-			effectiveDeadline = dl
+		memberDeadline := &now
+		if g.ID == group.ID {
+			memberDeadline = r.DeleteAfter
+		}
+		effectiveDeadline, err := streamGroupDeadline(tx, cfg, &g, &stream, latestID, memberDeadline, now)
+		if err != nil {
+			return err
 		}
 
 		if err := tx.Model(&g).Update("effective_delete_after", effectiveDeadline).Error; err != nil {
@@ -158,17 +182,70 @@ func (r *MetaResource) handleStreamRetention(tx *gorm.DB) error {
 	return nil
 }
 
-// allMembersLocked reports whether the group has members and every one of
-// them is immutable. An empty group is not "locked": the janitor removes it.
-func allMembersLocked(tx *gorm.DB, groupID uint) (bool, error) {
-	var counts struct{ Total, Unlocked int64 }
-	if err := tx.Model(&MetaResource{}).
-		Select("COUNT(*) AS total, COALESCE(SUM(CASE WHEN immutable IS NULL OR immutable = false THEN 1 ELSE 0 END), 0) AS unlocked").
-		Where("group_id = ?", groupID).
-		Scan(&counts).Error; err != nil {
-		return false, fmt.Errorf("count locked members: %w", err)
+// refreshGroupDeadline recomputes a group's deadline after a member was
+// removed from it (deleted by the janitor or the sync worker), from the
+// members that remain and the stream policy. syncGroupDeadline does not fit:
+// it treats the departed member's missing deadline as "keep forever" and so
+// cleared the deadline of a group whose remaining members still expire.
+func refreshGroupDeadline(tx *gorm.DB, cfg *config.Config, groupID uint) error {
+	var groups []Group
+	if err := tx.Preload("Stream").Where("id = ?", groupID).Limit(1).Find(&groups).Error; err != nil {
+		return fmt.Errorf("load group: %w", err)
 	}
-	return counts.Total > 0 && counts.Unlocked == 0, nil
+	if len(groups) == 0 {
+		return nil
+	}
+	g := groups[0]
+
+	now := now()
+	latestID := g.ID
+	if ptr.Val(g.Stream.AutoExpirePrevious) || ptr.Val(g.Stream.RetainLatest) {
+		var err error
+		if latestID, err = latestGroupID(tx, g.StreamID); err != nil {
+			return err
+		}
+	}
+	deadline, err := streamGroupDeadline(tx, cfg, &g, &g.Stream, latestID, &now, now)
+	if err != nil {
+		return err
+	}
+	return tx.Model(&Group{}).Where("id = ?", g.ID).Update("effective_delete_after", deadline).Error
+}
+
+// isRetained reports whether the janitor must never delete r: it is immutable
+// or on a protected path.
+func isRetained(cfg *config.Config, r *MetaResource) bool {
+	return ptr.Val(r.Immutable) || (cfg != nil && cfg.IsProtected(r.Path))
+}
+
+// allMembersRetained reports whether the group has members and the janitor
+// could delete none of them (see isRetained). An empty group is not
+// "retained": the janitor removes it.
+func allMembersRetained(tx *gorm.DB, cfg *config.Config, groupID uint) (bool, error) {
+	var total int64
+	if err := tx.Model(&MetaResource{}).Where("group_id = ?", groupID).Count(&total).Error; err != nil {
+		return false, fmt.Errorf("count members: %w", err)
+	}
+	if total == 0 {
+		return false, nil
+	}
+	var unlocked []MetaResource
+	q := tx.Model(&MetaResource{}).Select("id", "path", "immutable").
+		Where("group_id = ? AND (immutable IS NULL OR immutable = false)", groupID)
+	if cfg == nil || len(cfg.Storage.ProtectedPaths) == 0 {
+		// Without protected paths only immutability counts; one unlocked
+		// member is enough to answer.
+		q = q.Limit(1)
+	}
+	if err := q.Find(&unlocked).Error; err != nil {
+		return false, fmt.Errorf("load unlocked members: %w", err)
+	}
+	for i := range unlocked {
+		if !isRetained(cfg, &unlocked[i]) {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 func (r *MetaResource) computeOwnDeadline() *time.Time {
@@ -184,7 +261,7 @@ func (r *MetaResource) computeOwnDeadline() *time.Time {
 		consider(*r.ExpiryAt)
 	}
 	if r.ExpiryAfterUpload != nil {
-		if d, err := parseDuration(*r.ExpiryAfterUpload); err == nil {
+		if d, err := utils.ParseDuration(*r.ExpiryAfterUpload); err == nil {
 			consider(r.CreatedAt.Add(d))
 		}
 	}
@@ -195,7 +272,7 @@ func (r *MetaResource) computeOwnDeadline() *time.Time {
 		if baseline == nil {
 			baseline = &r.UpdatedAt
 		}
-		if d, err := parseDuration(*r.ExpiryAfterDownload); err == nil {
+		if d, err := utils.ParseDuration(*r.ExpiryAfterDownload); err == nil {
 			consider(baseline.Add(d))
 		}
 	}

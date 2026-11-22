@@ -609,7 +609,7 @@ func TestMigrateKeepsAdminSuspensionReason(t *testing.T) {
 	assert.True(t, strings.HasPrefix(st.Value, "migration: "), st.Value)
 	assert.Contains(t, st.Value, "migrated legacy streams and groups")
 	assert.Contains(t, st.Value, "recovered legacy expiry dates")
-	assert.True(t, strings.HasSuffix(st.Value, "; suspended before migration: release freeze"), st.Value)
+	assert.True(t, strings.HasSuffix(st.Value, "; admin reason: release freeze"), st.Value)
 	assert.Equal(t, 1, strings.Count(st.Value, "migrated legacy streams and groups"), "reasons are not repeated")
 }
 

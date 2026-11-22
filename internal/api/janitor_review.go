@@ -12,6 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/kovi/yaar/internal/models"
+	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
 
@@ -28,7 +29,9 @@ import (
 const janitorSuspendedKey = "janitor_suspended"
 
 // SuspendJanitor stops the janitor from deleting anything until ResumeJanitor
-// is called. reason is shown to the admin; suspending again replaces it.
+// is called. reason is shown to the admin; suspending again replaces it, so
+// callers that must keep an earlier reason build the new value first
+// (migrationSuspendReason, adminSuspendReason).
 func SuspendJanitor(db *gorm.DB, reason string) error {
 	var st models.SystemState
 	if err := db.Where("key = ?", janitorSuspendedKey).
@@ -246,6 +249,11 @@ func (h *Handler) GetPendingDeletions(c *gin.Context) {
 // KeepPending revokes pending deletions by locking the files (immutable), the
 // one protection every janitor path and stream policy honours. It is
 // reversible: unlock the file in the browser and its expiry applies again.
+//
+// resource_ids locks exactly those files; the review UI sends the files it
+// listed, so nothing uploaded after the page was rendered is locked unseen.
+// group_ids locks every current member of the groups, including files added
+// since the caller last looked; it is meant for scripts.
 func (h *Handler) KeepPending(c *gin.Context) {
 	var req struct {
 		GroupIDs    []uint `json:"group_ids"`
@@ -274,21 +282,36 @@ func (h *Handler) KeepPending(c *gin.Context) {
 		if err := q.Find(&locked).Error; err != nil {
 			return err
 		}
-		if len(locked) == 0 {
-			return nil
+		if len(locked) > 0 {
+			ids := make([]uint, len(locked))
+			for i, r := range locked {
+				ids[i] = r.ID
+			}
+			if err := tx.Model(&MetaResource{}).Where("id IN ?", ids).Update("immutable", true).Error; err != nil {
+				return err
+			}
 		}
-		ids := make([]uint, len(locked))
-		for i, r := range locked {
-			ids[i] = r.ID
+		// A group with nothing left to delete drops its deadline so the
+		// janitor doesn't select it every run. Partially kept groups keep
+		// theirs; the janitor deletes the rest.
+		touched := make(map[uint]bool)
+		for _, gid := range req.GroupIDs {
+			touched[gid] = true
 		}
-		if err := tx.Model(&MetaResource{}).Where("id IN ?", ids).Update("immutable", true).Error; err != nil {
-			return err
+		for _, r := range locked {
+			if r.GroupID != nil {
+				touched[*r.GroupID] = true
+			}
 		}
-		// A fully kept group no longer has anything to delete: drop its
-		// deadline so the janitor doesn't select it every run. Partially kept
-		// groups keep theirs; the janitor deletes the rest.
-		if len(req.GroupIDs) > 0 {
-			if err := tx.Model(&Group{}).Where("id IN ?", req.GroupIDs).
+		for gid := range touched {
+			retained, err := allMembersRetained(tx, h.Config, gid)
+			if err != nil {
+				return err
+			}
+			if !retained {
+				continue
+			}
+			if err := tx.Model(&Group{}).Where("id = ?", gid).
 				Update("effective_delete_after", nil).Error; err != nil {
 				return err
 			}
@@ -351,12 +374,24 @@ func (h *Handler) SuspendJanitorHandler(c *gin.Context) {
 		req.Reason = "suspended by admin"
 	}
 
-	if err := SuspendJanitor(h.DB, req.Reason); err != nil {
+	var stored string
+	if err := h.DB.Transaction(func(tx *gorm.DB) error {
+		cur, err := janitorSuspension(tx)
+		if err != nil {
+			return err
+		}
+		var existing *string
+		if cur != nil {
+			existing = &cur.Value
+		}
+		stored = adminSuspendReason(existing, req.Reason)
+		return SuspendJanitor(tx, stored)
+	}); err != nil {
 		respondErr(c, err)
 		return
 	}
-	h.Audit.WithContext(c).Success("SYSTEM_MAINTENANCE", "janitor", "operation", "janitor_suspend", "reason", req.Reason)
-	h.log(c).WithField("reason", req.Reason).Warn("janitor suspended by admin")
+	h.Audit.WithContext(c).Success("SYSTEM_MAINTENANCE", "janitor", "operation", "janitor_suspend", "reason", req.Reason, "stored_reason", stored)
+	h.log(c).WithFields(logrus.Fields{"reason": req.Reason, "stored_reason": stored}).Warn("janitor suspended by admin")
 
 	st, err := h.janitorStatus()
 	if err != nil {

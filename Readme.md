@@ -98,7 +98,10 @@ Admin-only system endpoints:
 - `GET /_/api/system/janitor/pending` - What the janitor would delete: groups past their deadline,
   older groups of `auto_expire_previous` streams, and ungrouped files past their own deadline.
 - `POST /_/api/system/janitor/keep` - Keep pending files by locking them (immutable). Body:
-  `{"group_ids": [...], "resource_ids": [...]}`.
+  `{"group_ids": [...], "resource_ids": [...]}`. `resource_ids` locks exactly those files (the UI
+  sends the files it listed); `group_ids` locks every current member of the groups, including files
+  uploaded since you looked. A group whose members are then all locked or protected loses its
+  deadline.
 - `POST /_/api/system/janitor/suspend` - Suspend the janitor. Optional body `{"reason": "..."}`.
 - `POST /_/api/system/janitor/resume` - Resume it.
 - `GET /_/api/v1/admin/audit-log` - Read the audit log, newest first. Parameters: `limit` (max
@@ -216,8 +219,12 @@ admin resumes it.
 
 **Review.** *Settings → Janitor* lists every pending deletion with its reason, size and deadline.
 *Keep* locks the selected files so they survive; unlock them later in the file browser and their
-normal expiry applies again. A locked file also refuses overwriting uploads (`403`), so keeping
+normal expiry applies again. Keeping a group locks the files the page listed, not files uploaded
+into it afterwards. A locked file also refuses overwriting uploads (`403`), so keeping
 a path a CI job re-uploads will make that job fail until the file is unlocked.
+
+Suspending while a migration review is pending keeps the migration reason (your reason is added
+to it), so the review warning stays until the janitor is resumed.
 
 Suspensions, resumes, kept files and every deletion are in the audit log; the *Janitor log* card
 shows just those entries.
@@ -283,7 +290,10 @@ deleted once it has been missing for `missing_grace_period` (`storage.missing_gr
 `config.yml`: days such as `7d`, or a Go duration such as `168h`; default 7 days). If the file comes back, for example after a forgotten mount is
 restored, the mark is cleared and nothing is lost. Admins see a warning in the System tab while any
 records are marked missing. A data directory that does not exist, or a subdirectory that cannot be
-read, is never treated as "missing". Set `0` to delete records on the first miss.*
+read, is never treated as "missing": records under it keep whatever mark they had. Set `0` to delete records on the first miss.
+File names of the form `.<name>.upload-<digits>` (uploads in progress) and `.health-<digits>`
+(the health probe) are reserved for yaar's temporary files: the sync worker ignores them, and
+uploads, renames and moves to such names are refused with `400`.*
 
 *Log level accepts any logrus level: `panic`, `fatal`, `error`, `warn`, `info`, `debug`, `trace`.
 An invalid value fails at startup rather than being silently ignored.*
@@ -392,7 +402,13 @@ What the data migration does:
   warning for review.
 - `expires_at` becomes a relative expiry (`7d`, ...) when it lies a whole number of days after the
   upload, otherwise an absolute date.
-- Group deletion deadlines are computed for every migrated group.
+- Group deletion deadlines are computed for every migrated group, by the same rules uploads apply:
+  older groups of an `auto_expire_previous` stream are due at once (shown under *Settings →
+  Janitor* while it is suspended).
+- Installs that already ran the first release of this migration had keep-latest converted to
+  `retain_latest` instead. That cannot be undone automatically (the legacy column is gone), so
+  each `retain_latest` stream is logged and audited (`migration_review_retain_latest`) for you to
+  check; switch it to `auto_expire_previous` if it came from keep-latest.
 
 Clients need updating — the old headers are rejected with `400 LEGACY_HEADER` (naming the
 replacement) rather than silently ignored:

@@ -66,11 +66,26 @@ func AutoMigrate(db *gorm.DB, auditor *audit.Auditor) error {
 	// in the audit log once the migrations have committed.
 	var mergeDirs []string
 
+	// Decided before any migration runs: a revision marker written later in
+	// this run must not hide an extraction an earlier version did.
+	unrevisedExtraction, err := extractionRanUnrevised(db)
+	if err != nil {
+		return err
+	}
+
 	m := gormigrate.New(db, gormigrate.DefaultOptions, []*gormigrate.Migration{
 		{
 			ID: "202605311000_extract_stream_and_group",
 			Migrate: func(tx *gorm.DB) error {
 				logrus.Info("migration 202605311000_extract_stream_and_group: starting")
+				// This migration was corrected after it shipped (keep-latest
+				// conversion, group created_at). The marker tells
+				// 202611191200_review_legacy_keep_latest which version ran.
+				if err := tx.Where("key = ?", extractionRevisionKey).
+					Assign(models.SystemState{Value: extractionRevision}).
+					FirstOrCreate(&models.SystemState{}, models.SystemState{Key: extractionRevisionKey}).Error; err != nil {
+					return fmt.Errorf("record extraction revision: %w", err)
+				}
 				// 1. Create the new tables
 				if err := tx.AutoMigrate(&Stream{}, &Group{}); err != nil {
 					return err
@@ -365,6 +380,15 @@ func AutoMigrate(db *gorm.DB, auditor *audit.Auditor) error {
 				return nil
 			},
 		},
+		{
+			ID: "202611191200_review_legacy_keep_latest",
+			Migrate: func(tx *gorm.DB) error {
+				return reviewLegacyKeepLatest(tx, auditor, unrevisedExtraction)
+			},
+			Rollback: func(tx *gorm.DB) error {
+				return nil
+			},
+		},
 	})
 
 	if err := m.Migrate(); err != nil {
@@ -391,33 +415,120 @@ func AutoMigrate(db *gorm.DB, auditor *audit.Auditor) error {
 	)
 }
 
-// Separates the migration reasons from an admin suspension that was already
-// in place when the migration ran.
-const suspendedBeforeMigrationSep = "; suspended before migration: "
+// The stream/group extraction writes extractionRevisionKey since it was
+// corrected; an install whose extraction is recorded without it ran the
+// original version.
+const (
+	extractionRevisionKey = "migration_202605311000_revision"
+	extractionRevision    = "2"
+)
+
+// extractionRanUnrevised reports whether 202605311000_extract_stream_and_group
+// already ran in the version that first shipped, before it was corrected.
+func extractionRanUnrevised(db *gorm.DB) (bool, error) {
+	if !db.Migrator().HasTable("migrations") {
+		return false, nil
+	}
+	var applied int64
+	if err := db.Table("migrations").Where("id = ?", "202605311000_extract_stream_and_group").Count(&applied).Error; err != nil {
+		return false, fmt.Errorf("check applied migrations: %w", err)
+	}
+	if applied == 0 {
+		return false, nil
+	}
+	var marked int64
+	if err := db.Model(&models.SystemState{}).Where("key = ?", extractionRevisionKey).Count(&marked).Error; err != nil {
+		return false, fmt.Errorf("check extraction revision: %w", err)
+	}
+	return marked == 0, nil
+}
+
+// reviewLegacyKeepLatest flags streams that the original stream/group
+// extraction may have converted wrongly, on installs where that version ran.
+//
+// It turned the legacy per-file keep-latest flag into RetainLatest, which
+// keeps the newest group forever and stops expiring the older ones on a new
+// upload. Legacy keep-latest meant AutoExpirePrevious: older groups expire
+// when a new one arrives and the newest keeps its own expiry. The legacy
+// column is gone, and RetainLatest may since have been set on purpose, so the
+// streams cannot be corrected automatically: each RetainLatest stream is
+// logged and audited for an admin to check. Nothing is deleted either way
+// (RetainLatest only keeps more), so the janitor is not suspended.
+//
+// The original version also created groups with the migration time as
+// created_at, but in legacy row (upload) order, so "latest group in stream"
+// already resolves to the same group the corrected version picks; that part
+// needs no repair.
+func reviewLegacyKeepLatest(tx *gorm.DB, auditor *audit.Auditor, unrevised bool) error {
+	const id = "migration 202611191200_review_legacy_keep_latest"
+	if !unrevised {
+		logrus.Info(id + ": stream/group extraction ran in its corrected version, nothing to review")
+		return nil
+	}
+	var streams []Stream
+	if err := tx.Where("retain_latest = ?", true).Order("name").Find(&streams).Error; err != nil {
+		return fmt.Errorf("load retain_latest streams: %w", err)
+	}
+	for _, st := range streams {
+		logrus.WithField("stream", st.Name).Warn(id + ": stream has retain_latest, possibly converted from legacy keep-latest; " +
+			"if it should expire previous groups on upload instead, set auto_expire_previous and clear retain_latest")
+		if auditor != nil {
+			auditor.Success("SYSTEM_MAINTENANCE", st.Name,
+				"operation", "migration_review_retain_latest",
+				"stream", st.Name,
+				"retain_latest", true,
+				"auto_expire_previous", ptr.Val(st.AutoExpirePrevious),
+				"note", "the original stream/group migration mapped legacy keep-latest to retain_latest; legacy behaviour was auto_expire_previous")
+		}
+	}
+	logrus.WithField("streams", len(streams)).Info(id + ": flagged retain_latest streams for review")
+	return nil
+}
+
+// Separates the migration reasons from an admin's own suspension reason, given
+// before or after the migration suspended the janitor.
+const adminReasonSep = "; admin reason: "
+
+// migrationSuspendPrefix starts every suspension a migration wrote; the UI keys
+// the review flow off it.
+const migrationSuspendPrefix = "migration: "
 
 // migrationSuspendReason adds reason to the stored suspension. The result
-// always starts with "migration: " (the UI keys the review flow off it);
+// always starts with migrationSuspendPrefix;
 // reasons already present are not repeated (a failed migration re-runs), and
 // an earlier admin reason is kept rather than overwritten.
 func migrationSuspendReason(existing *string, reason string) string {
-	const prefix = "migration: "
+	const prefix = migrationSuspendPrefix
 	if existing == nil {
 		return prefix + reason
 	}
 	prev := *existing
 	if !strings.HasPrefix(prev, prefix) {
-		return prefix + reason + suspendedBeforeMigrationSep + prev
+		return prefix + reason + adminReasonSep + prev
 	}
-	head, admin, hasAdmin := strings.Cut(prev, suspendedBeforeMigrationSep)
+	head, admin, hasAdmin := strings.Cut(prev, adminReasonSep)
 	reasons := strings.Split(strings.TrimPrefix(head, prefix), ", ")
 	if !slices.Contains(reasons, reason) {
 		reasons = append(reasons, reason)
 	}
 	out := prefix + strings.Join(reasons, ", ")
 	if hasAdmin {
-		out += suspendedBeforeMigrationSep + admin
+		out += adminReasonSep + admin
 	}
 	return out
+}
+
+// adminSuspendReason is the stored suspension after an admin suspends with
+// reason. A pending migration review is kept, with reason replacing any
+// earlier admin reason: losing the "migration: " prefix would drop the
+// review warning in the UI, and a later resume would delete what the
+// migration changed without anyone having seen that it was a migration.
+func adminSuspendReason(existing *string, reason string) string {
+	if existing == nil || !strings.HasPrefix(*existing, migrationSuspendPrefix) {
+		return reason
+	}
+	head, _, _ := strings.Cut(*existing, adminReasonSep)
+	return head + adminReasonSep + reason
 }
 
 // suspendJanitorForMigration suspends the janitor on behalf of a migration
@@ -459,11 +570,18 @@ func suspendJanitorForMigration(tx *gorm.DB, auditor *audit.Auditor, reason stri
 // groups that never received another upload were kept forever regardless of
 // their files' expiry.
 //
-// Applies the same rule handleStreamRetention uses for groups other than the
-// one being saved: the latest group of a RetainLatest stream keeps no deadline
-// (or its RetainLatestMaxExpiry cap); every other group gets the latest of its
-// members' deadlines, or none if any member is immutable or has no expiry.
-// Groups whose deadline has already passed are deleted by the next janitor run.
+// Applies the rule handleStreamRetention uses for groups other than the one
+// being saved (streamGroupDeadline): the latest group of a RetainLatest stream
+// keeps no deadline (or its RetainLatestMaxExpiry cap); older groups of an
+// AutoExpirePrevious stream expire now unless every member is locked; every
+// other group gets the latest of its members' deadlines, or none if any member
+// is immutable or has no expiry. Groups whose deadline has already passed are
+// deleted by the next janitor run, which is why the janitor is suspended for
+// review first.
+//
+// Protected paths are not known here (the config is not passed to
+// migrations), so an older group made up only of protected files still gets a
+// deadline; the janitor skips its members once and clears it.
 func backfillGroupDeadlines(tx *gorm.DB, auditor *audit.Auditor) (int, error) {
 	logrus.Info("migration 202611111200_backfill_group_deadlines: starting")
 
@@ -483,35 +601,25 @@ func backfillGroupDeadlines(tx *gorm.DB, auditor *audit.Auditor) (int, error) {
 		if id, ok := latestByStream[streamID]; ok {
 			return id, nil
 		}
-		var g Group
-		if err := tx.Where("stream_id = ?", streamID).Order("created_at DESC, id DESC").Limit(1).Find(&g).Error; err != nil {
-			return 0, fmt.Errorf("load latest group: %w", err)
+		id, err := latestGroupID(tx, streamID)
+		if err != nil {
+			return 0, err
 		}
-		latestByStream[streamID] = g.ID
-		return g.ID, nil
+		latestByStream[streamID] = id
+		return id, nil
 	}
 
 	ts := now()
 	var set, kept, past int
 	suspended := false
 	for _, g := range groups {
-		var deadline *time.Time
-
 		latestID, err := latestGroup(g.StreamID)
 		if err != nil {
 			return set, err
 		}
-		if g.ID == latestID && ptr.Val(g.Stream.RetainLatest) {
-			if g.Stream.RetainLatestMaxExpiry != nil {
-				if d, err := parseDuration(*g.Stream.RetainLatestMaxExpiry); err == nil {
-					deadline = ptr.Of(g.CreatedAt.Add(d))
-				}
-			}
-		} else {
-			deadline, err = computeGroupDeadline(tx, g.ID, &ts)
-			if err != nil {
-				return set, err
-			}
+		deadline, err := streamGroupDeadline(tx, nil, &g, &g.Stream, latestID, &ts, ts)
+		if err != nil {
+			return set, err
 		}
 
 		if deadline == nil {

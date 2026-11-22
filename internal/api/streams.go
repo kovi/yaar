@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/kovi/yaar/internal/audit"
+	"github.com/kovi/yaar/internal/utils"
 )
 
 // streamAuditFields flattens a stream's retention settings for the audit trail.
@@ -149,7 +150,7 @@ func (h *Handler) PatchStream(c *gin.Context) {
 
 func validateStreamRequest(req *StreamRequest) error {
 	if req.RetainLatestMaxExpiry != nil {
-		if _, err := parseDuration(*req.RetainLatestMaxExpiry); err != nil {
+		if _, err := utils.ParseDuration(*req.RetainLatestMaxExpiry); err != nil {
 			return fmt.Errorf("invalid retain_latest_max_expiry: %w", err)
 		}
 	}

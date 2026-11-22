@@ -272,30 +272,34 @@ async function renderPending(card, body) {
 		.querySelectorAll(".af-jr-cb-file")
 		.forEach((cb) => cb.addEventListener("change", updateKeep));
 
+	// A ticked group counts as a group for the label, but what is sent is the
+	// files listed here: the server's group_ids would also lock files uploaded
+	// into the group after this page was rendered, which the admin never saw.
 	function selection() {
-		const groupIds = [...list.querySelectorAll(".af-jr-cb-group:checked")].map(
-			(cb) => Number(cb.dataset.id),
-		);
-		const resourceIds = [
+		const groups = [...list.querySelectorAll(".af-jr-cb-group:checked")].length;
+		const files = [
 			...list.querySelectorAll(".af-jr-cb-file:checked:not(:disabled)"),
+		].length;
+		const resourceIds = [
+			...list.querySelectorAll(".af-jr-cb-file:checked"),
 		].map((cb) => Number(cb.dataset.id));
-		return { groupIds, resourceIds };
+		return { groups, files, resourceIds };
 	}
 
 	function updateKeep() {
-		const { groupIds, resourceIds } = selection();
-		const n = groupIds.length + resourceIds.length;
+		const { groups, files } = selection();
+		const n = groups + files;
 		keepBtn.disabled = n === 0;
 		keepBtn.textContent = n
-			? `Keep selected (${groupIds.length ? `${groupIds.length} groups` : ""}${groupIds.length && resourceIds.length ? ", " : ""}${resourceIds.length ? `${resourceIds.length} files` : ""})`
+			? `Keep selected (${groups ? `${groups} groups` : ""}${groups && files ? ", " : ""}${files ? `${files} files` : ""})`
 			: "Keep selected";
 	}
 
 	keepBtn.onclick = async () => {
-		const { groupIds, resourceIds } = selection();
+		const { resourceIds } = selection();
 		keepBtn.disabled = true;
 		try {
-			const res = await API.keepPending(groupIds, resourceIds);
+			const res = await API.keepPending([], resourceIds);
 			showToast(`Kept ${res.locked} files (locked)`, "success");
 			await renderPending(card, body);
 		} catch (e) {

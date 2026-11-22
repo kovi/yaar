@@ -29,7 +29,7 @@ func TestHandleMove(t *testing.T) {
 		r := createGroupedResource(db, oldPath, "stream1", "group1")
 		r.SHA256 = "test-hash"
 		r.Tags = tags
-		r.Save(db)
+		r.Save(db, nil)
 
 		// 2. Perform Move
 		w := Perform(t, router, "POST", "/_/api/v1/fs"+oldPath,

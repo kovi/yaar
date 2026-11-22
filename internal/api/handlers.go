@@ -220,7 +220,7 @@ func (h *Handler) PatchMeta(c *gin.Context) {
 			}
 		}
 
-		if err := r.Save(tx); err != nil {
+		if err := r.Save(tx, h.Config); err != nil {
 			return err
 		}
 
@@ -291,6 +291,10 @@ func (h *Handler) PostMeta(c *gin.Context) {
 		fullOldPath := h.fsPath(dbPath)
 		newURLPath := filepath.Join(filepath.Dir(oldURLPath), filepath.Clean(req.RenameTo))
 		fullNewPath := h.fsPath(newURLPath)
+		if err := checkReservedName(newURLPath); err != nil {
+			respondErr(c, err)
+			return
+		}
 
 		if h.Config.IsProtected(oldURLPath) {
 			h.Audit.WithContext(c).Failure(audit.ActionRename, oldURLPath, fmt.Errorf("protected path"))
@@ -399,6 +403,11 @@ func (h *Handler) HandleMove(c *gin.Context, moveTo string) {
 	// User must be able to "Delete/Modify" the source
 	if ok, msg := h.CanModify(oldURLPath, allowedPaths, ModifyOptions{}); !ok {
 		c.JSON(403, gin.H{"error": "Source permission denied: " + msg})
+		return
+	}
+
+	if err := checkReservedName(newURLPath); err != nil {
+		respondErr(c, err)
 		return
 	}
 

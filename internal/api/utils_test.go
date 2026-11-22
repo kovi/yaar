@@ -175,51 +175,6 @@ func TestParseTimeStringInLocation(t *testing.T) {
 	}
 }
 
-// A negative retention duration is always a mistake: it puts the deadline in
-// the past, so the resource is deleted on the very next janitor tick.
-func TestParseDurationRejectsNegative(t *testing.T) {
-	for _, input := range []string{"-30d", "-1h", "-15m", "-1s"} {
-		if d, err := parseDuration(input); err == nil {
-			t.Errorf("parseDuration(%q) = %v, want an error", input, d)
-		}
-	}
-}
-
-func TestParseDuration(t *testing.T) {
-	tests := []struct {
-		input   string
-		want    time.Duration
-		wantErr bool
-	}{
-		{input: "30d", want: 30 * 24 * time.Hour},
-		{input: "7d", want: 7 * 24 * time.Hour},
-		{input: "2h", want: 2 * time.Hour},
-		{input: "30m", want: 30 * time.Minute},
-		{input: "0d", want: 0},
-		{input: "garbage", wantErr: true},
-		{input: "", wantErr: true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			got, err := parseDuration(tt.input)
-			if tt.wantErr {
-				if err == nil {
-					t.Errorf("parseDuration(%q) = %v, want an error", tt.input, got)
-				}
-				return
-			}
-			if err != nil {
-				t.Errorf("parseDuration(%q): unexpected error: %v", tt.input, err)
-				return
-			}
-			if got != tt.want {
-				t.Errorf("parseDuration(%q) = %v, want %v", tt.input, got, tt.want)
-			}
-		})
-	}
-}
-
 func TestParseListPagination(t *testing.T) {
 	tests := []struct {
 		name       string

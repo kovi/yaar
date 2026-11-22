@@ -31,7 +31,7 @@ func TestStreamRetentionLatestGroupTieBreaksByID(t *testing.T) {
 	require.Equal(t, older.ID, pd.Groups[0].ID, "review page: the higher id is the latest group")
 
 	r := MetaResource{Path: "/tie/b.bin", GroupID: &newer.ID}
-	require.NoError(t, r.Save(h.DB))
+	require.NoError(t, r.Save(h.DB, h.Config))
 
 	require.NoError(t, h.DB.First(&older, older.ID).Error)
 	require.NoError(t, h.DB.First(&newer, newer.ID).Error)
@@ -87,7 +87,7 @@ func TestStreamRetentionSkipsFullyLockedOlderGroups(t *testing.T) {
 	require.NoError(t, h.DB.Create(&MetaResource{Path: "/k/m2", GroupID: &mixed.ID}).Error)
 
 	r := MetaResource{Path: "/k/new", GroupID: &latest.ID}
-	require.NoError(t, r.Save(h.DB))
+	require.NoError(t, r.Save(h.DB, h.Config))
 
 	reload := func(g *Group) { require.NoError(t, h.DB.First(g, g.ID).Error) }
 	reload(&locked)

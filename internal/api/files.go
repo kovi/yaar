@@ -27,6 +27,57 @@ import (
 // file could not be renamed into place.
 var errPublishFailed = errors.New("publish upload failed")
 
+// previousArtifactSuffix names the hard link to the previous artifact that an
+// overwrite keeps until its DB commit succeeds (see isTransientFile).
+const previousArtifactSuffix = "-prev"
+
+// previousArtifact is what was at an upload's target before it was published.
+type previousArtifact struct {
+	existed bool   // something was at the target
+	link    string // hard link to it, or "" if none could be made
+}
+
+// preservePrevious hard-links the current file at fullPath next to the upload's
+// temp file, so a publish whose DB commit then fails can put it back. Nothing
+// at fullPath is not an error. A filesystem without hard links is: the upload
+// can still go ahead, it just cannot be undone.
+func preservePrevious(fullPath, tmpPath string) (previousArtifact, error) {
+	fi, err := os.Lstat(fullPath)
+	if os.IsNotExist(err) {
+		return previousArtifact{}, nil
+	}
+	if err != nil {
+		return previousArtifact{existed: true}, err
+	}
+	if !fi.Mode().IsRegular() {
+		return previousArtifact{existed: true}, fmt.Errorf("%s is not a regular file", fullPath)
+	}
+	link := tmpPath + previousArtifactSuffix
+	if err := os.Link(fullPath, link); err != nil {
+		return previousArtifact{existed: true}, err
+	}
+	return previousArtifact{existed: true, link: link}, nil
+}
+
+// restore undoes a publish: the previous artifact goes back to fullPath in one
+// rename, or, if there was none, the new file is removed.
+func (p previousArtifact) restore(fullPath string) error {
+	switch {
+	case p.link != "":
+		return os.Rename(p.link, fullPath)
+	case !p.existed:
+		return os.Remove(fullPath)
+	default:
+		return errors.New("previous version was not preserved")
+	}
+}
+
+func (p previousArtifact) discard() {
+	if p.link != "" {
+		os.Remove(p.link)
+	}
+}
+
 func (h *Handler) fsPath(path string) string {
 	return filepath.Join(h.BaseDir, filepath.Clean(path))
 }
@@ -84,7 +135,7 @@ func (h *Handler) ServeFile(c *gin.Context, path string) {
 	// Update sliding window expiry
 	if meta != nil && meta.ExpiryAfterDownload != nil {
 		meta.LastDownloadedAt = ptr.Of(time.Now())
-		if err := meta.Save(h.DB); err != nil {
+		if err := meta.Save(h.DB, h.Config); err != nil {
 			log.WithError(err).Errorf("saving after onDownload")
 		}
 	}
@@ -147,6 +198,11 @@ func (h *Handler) HandleUpload(c *gin.Context) {
 	}
 
 	finalRelativePath = filepath.Clean(finalRelativePath)
+	if err := checkReservedName(finalRelativePath); err != nil {
+		h.Audit.WithContext(c).Failure(audit.ActionUpload, finalRelativePath, err)
+		respondErr(c, err)
+		return
+	}
 	fullPath := filepath.Join(h.BaseDir, finalRelativePath)
 	log.Infof("upload request: %v expSize:%v", fullPath, expectedSize)
 
@@ -316,6 +372,8 @@ func (h *Handler) HandleUpload(c *gin.Context) {
 	// (e.g. a group conflict) must leave the previous artifact and its
 	// checksums untouched.
 	var res MetaResource
+	// Set once the upload is renamed into place: what was at fullPath before.
+	var published *previousArtifact
 
 	res.Type = ResourceTypeFile
 	// Use the file's actual mtime (rename preserves it) so the sync worker sees
@@ -407,7 +465,7 @@ func (h *Handler) HandleUpload(c *gin.Context) {
 			}
 		}
 
-		if err := res.Save(tx); err != nil {
+		if err := res.Save(tx, h.Config); err != nil {
 			return err
 		}
 
@@ -415,13 +473,34 @@ func (h *Handler) HandleUpload(c *gin.Context) {
 		// valid, so move it into place. os.Rename replaces any existing file in
 		// one step, so a concurrent reader sees either the old artifact or the
 		// new one — never a partial write. A failed rename rolls the DB back.
+		//
+		// The rename happens before COMMIT, which can still fail. The previous
+		// artifact is hard-linked aside first so that case can put it back.
+		prev, err := preservePrevious(fullPath, tmpPath)
+		if err != nil {
+			log.WithError(err).Warnf("cannot keep the previous version of %v; a failed commit cannot restore it", fullPath)
+		}
 		if err := os.Rename(tmpPath, fullPath); err != nil {
 			log.WithError(err).Errorf("failed to publish upload to %v", fullPath)
+			prev.discard()
 			return errPublishFailed
 		}
 		committed = true
+		published = &prev
 		return nil
 	})
+
+	if published != nil {
+		if err != nil {
+			// COMMIT failed after the new body went live: the DB still describes
+			// the previous artifact, so the disk must too.
+			if rerr := published.restore(fullPath); rerr != nil {
+				log.WithError(rerr).Errorf("commit failed and %v could not be restored; the next sync re-hashes it", fullPath)
+			}
+		} else {
+			published.discard()
+		}
+	}
 
 	if err != nil {
 		h.Audit.WithContext(c).Failure(audit.ActionUpload, urlPath, err)

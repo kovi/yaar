@@ -49,39 +49,6 @@ func parseListPagination(c *gin.Context) (limit, offset int, err error) {
 	return limit, offset, nil
 }
 
-// parseDuration parses a retention duration.
-//
-//	"30d" → 30 * 24 * time.Hour
-//	"7d"  → 7 * 24 * time.Hour
-//	"2h"  → 2 * time.Hour
-//
-// Negative durations are rejected: they are always a mistake in a retention
-// setting, and accepting one puts the deadline in the past, so the resource is
-// deleted on the very next janitor tick.
-func parseDuration(s string) (time.Duration, error) {
-	var d time.Duration
-
-	if strings.HasSuffix(s, "d") {
-		days, err := strconv.Atoi(strings.TrimSuffix(s, "d"))
-		if err != nil {
-			return 0, err
-		}
-		d = time.Duration(days) * 24 * time.Hour
-	} else {
-		var err error
-		d, err = time.ParseDuration(s) // Handles "2h", "30m", etc.
-		if err != nil {
-			return 0, err
-		}
-	}
-
-	if d < 0 {
-		return 0, fmt.Errorf("duration %q is negative: retention durations must be positive", s)
-	}
-
-	return d, nil
-}
-
 // parseTimeString parses various time formats into time.Time.
 // Supported formats:
 //   - RFC3339: "2006-01-02T15:04:05Z07:00"

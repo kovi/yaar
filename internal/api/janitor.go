@@ -165,7 +165,7 @@ func (h *Handler) cleanupGroup(log *logrus.Entry, group *Group) error {
 	expirable := make([]MetaResource, 0, len(members))
 	var retained []MetaResource
 	for _, r := range members {
-		if ptr.Val(r.Immutable) || h.Config.IsProtected(r.Path) {
+		if isRetained(h.Config, &r) {
 			retained = append(retained, r)
 			continue
 		}
@@ -210,7 +210,7 @@ func (h *Handler) cleanupGroup(log *logrus.Entry, group *Group) error {
 	} else {
 		// The group outlives this run. Clear its deadline so the janitor stops
 		// re-selecting it every tick and re-reporting the same skip; a later
-		// member change recomputes it via syncGroupDeadline.
+		// member change recomputes it.
 		if err := h.DB.Model(group).Update("effective_delete_after", nil).Error; err != nil {
 			return fmt.Errorf("clear group deadline: %w", err)
 		}
@@ -292,8 +292,7 @@ func (h *Handler) deleteResource(log *logrus.Entry, r *MetaResource, reason stri
 	h.Audit.Success("SYSTEM_CLEANUP", r.Path, "reason", reason, "meta", resourceAuditMap(*r, h.Config))
 
 	if r.GroupID != nil {
-		r.DeleteAfter = nil // resource is gone; don't let its old deadline extend the group's
-		if err := r.syncGroupDeadline(h.DB); err != nil {
+		if err := refreshGroupDeadline(h.DB, h.Config, *r.GroupID); err != nil {
 			log.WithError(err).WithField("group_id", *r.GroupID).Warn("delete: sync group deadline failed")
 		}
 		if err := h.cleanupGroupIfEmpty(r.GroupID); err != nil {

@@ -6,10 +6,13 @@ import (
 	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -211,7 +214,13 @@ func (h *Handler) reconcileMissing(log *logrus.Entry, dbFiles map[string]MetaRes
 	var marked, recovered, removed int
 
 	for path, meta := range dbFiles {
-		if foundOnDisk[path] || underAnyPath(path, unreadable) {
+		if !foundOnDisk[path] && underAnyPath(path, unreadable) {
+			// The walk could not look, so it learned nothing: neither start
+			// the grace clock nor report the file as back. A record already
+			// marked missing keeps its mark and its original missing_since.
+			continue
+		}
+		if foundOnDisk[path] {
 			if meta.MissingSince != nil {
 				if err := h.DB.Model(&MetaResource{}).Where("id = ?", meta.ID).UpdateColumn("missing_since", nil).Error; err != nil {
 					log.WithError(err).Errorf("Sync: failed to clear missing mark on %s", path)
@@ -286,8 +295,7 @@ func (h *Handler) reconcileMissing(log *logrus.Entry, dbFiles map[string]MetaRes
 		removed++
 
 		if meta.GroupID != nil {
-			meta.DeleteAfter = nil // gone; don't let its old deadline extend the group's
-			if err := meta.syncGroupDeadline(h.DB); err != nil {
+			if err := refreshGroupDeadline(h.DB, h.Config, *meta.GroupID); err != nil {
 				log.WithError(err).WithField("group_id", *meta.GroupID).Warn("Sync: sync group deadline failed")
 			}
 			if err := h.cleanupGroupIfEmpty(meta.GroupID); err != nil {
@@ -346,16 +354,32 @@ func underAnyPath(urlPath string, roots []string) bool {
 	return false
 }
 
-// isTransientFile reports whether name is a short-lived file yaar itself
-// creates in the data dir: an upload still being written
-// (".<name>.upload-*", see HandleUpload) or the health probe (".health-*").
-// They are renamed or removed within the request, so tracking them only
-// produces records that go missing moments later.
+// transientFileRe matches the exact names of the short-lived files yaar
+// itself creates in the data dir: an upload still being written
+// (".<name>.upload-<n>", from os.CreateTemp in HandleUpload), the previous
+// version an overwrite keeps until its commit (".<name>.upload-<n>-prev"), and
+// the health probe (".health-<n>"). os.CreateTemp fills <n> with digits.
+var transientFileRe = regexp.MustCompile(`^(\..+\.upload-[0-9]+(` + regexp.QuoteMeta(previousArtifactSuffix) + `)?|\.health-[0-9]+)$`)
+
+// isTransientFile reports whether name is one of yaar's own temp files (see
+// transientFileRe). They are renamed or removed within the request, so
+// tracking them only produces records that go missing moments later. Users
+// cannot create files with these names (see checkReservedName), so a match is
+// never an artifact.
 func isTransientFile(name string) bool {
-	if !strings.HasPrefix(name, ".") {
-		return false
+	return transientFileRe.MatchString(name)
+}
+
+// checkReservedName refuses a path whose file name is reserved for yaar's own
+// temp files: the sync worker ignores such files, so an artifact by that name
+// would lose its record.
+func checkReservedName(urlPath string) error {
+	if isTransientFile(path.Base(urlPath)) {
+		return &AppError{ErrBadRequest, fmt.Sprintf(
+			"%q is reserved for temporary files (names like \".<name>.upload-<digits>\" and \".health-<digits>\")",
+			path.Base(urlPath)), nil}
 	}
-	return strings.HasPrefix(name, ".health-") || strings.Contains(name, ".upload-")
+	return nil
 }
 
 func (h *Handler) processIncomingFile(ctx context.Context, fullDiskPath, urlPath string, info os.FileInfo) {
